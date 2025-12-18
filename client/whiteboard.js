@@ -40,7 +40,7 @@ class SceneObject {
 	 */
 	constructor(id, data) {
 		this.data = data
-		this.id = id
+		this.objectID = id
 	}
 	add() {
 		objects.push(this)
@@ -362,7 +362,16 @@ class Connection {
 		/** @type {{ type: "create_object", objectID: number, typeID: string, data: Object }} */
 		var message = JSON.parse(msgEvent.data)
 		if (message.type == "create_object") {
-			var obj = SceneObject.createFromDataAndID(message.typeID, message.data, message.objectID)
+			// Search for existing object
+			var obj = null
+			for (var o of objects) {
+				if (o.objectID == message.objectID) obj = o;
+			}
+			// Create new object?
+			if (obj == null) {
+				obj = SceneObject.createFromDataAndID(message.typeID, message.data, message.objectID)
+			}
+			// Verify object!
 			obj.verify()
 		}
 	}
@@ -981,7 +990,7 @@ class USICreateObject extends UndoStackItem {
 	 */
 	constructor(typeID, objectID, data) { super(); this.typeID = typeID; this.objectID = objectID; this.data = data; this.obj = null; }
 	// @ts-ignore
-	undo() { removeAndSendEraseForID(this.obj == null ? -1 : this.obj.id); }
+	undo() { removeAndSendEraseForID(this.obj == null ? -1 : this.obj.objectID); }
 	redo() { this.obj = SceneObject.createFromDataAndID(this.typeID, this.data, this.objectID); connection.createObject(this.typeID, this.objectID, this.data); }
 }
 

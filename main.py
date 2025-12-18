@@ -35,14 +35,14 @@ class Whiteboard:
 		while os.path.exists(f"objects/{id}.json"):
 			id += "_" + random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ") + random.choice("0123456789")
 		return id
-	# def saveObjectList(self):
-	# 	f = open(f"whiteboards/{self.id}.json", "w")
-	# 	f.write(json.dumps({
-	# 		"name": self.name,
-	# 		"created": self.created.isoformat(),
-	# 		"objects": self.objects
-	# 	}))
-	# 	f.close()
+	def saveObjectList(self):
+		f = open(f"whiteboards/{self.id}.json", "w")
+		f.write(json.dumps({
+			"name": self.name,
+			"created": self.created.isoformat(),
+			"objects": self.objects
+		}))
+		f.close()
 	def loadObjectList(self):
 		if not os.path.isfile(f"whiteboards/{self.id}.json"): return
 		f = open(f"whiteboards/{self.id}.json", "r")
@@ -51,8 +51,6 @@ class Whiteboard:
 		self.name = data["name"]
 		self.created = datetime.datetime.fromisoformat(data["created"])
 		self.objects = data["objects"]
-		for o in self.objects:
-			o["typeID"] = o["data"]["typeID"]
 		print("[Draw] Loaded", len(self.objects), "objects for whiteboard with id", self.id, "(name: " + repr(self.name) + ")")
 
 class Draw2Server(HTTPServer):
@@ -142,7 +140,7 @@ class Draw2Server(HTTPServer):
 			w = Whiteboard(Whiteboard.generateID())
 			self.whiteboards.append(w)
 			w.name = name
-			print(f"[Draw] [{dt()}] New whiteboard with id:", w.id, "name:", repr(w.name), "clients")
+			print(f"[Draw] [{dt()}] New whiteboard with id:", w.id, "name:", repr(w.name))
 			return {
 				"status": 200,
 				"headers": {},
@@ -154,9 +152,9 @@ class Draw2Server(HTTPServer):
 			newname = data[1]
 			for w in self.whiteboards:
 				if w.id == id:
-					print(f"[Draw] [{dt()}] Renamed whiteboard with id", w.id, " (old name: " + repr(w.name) + ") to:", repr(newname))
+					print(f"[Draw] [{dt()}] Renamed whiteboard with id", w.id, "(old name:", repr(w.name) + ") to:", repr(newname))
 					w.name = newname
-					# w.saveObjectList()
+					w.saveObjectList()
 			return {
 				"status": 200,
 				"headers": {},
@@ -203,7 +201,7 @@ class Draw2Server(HTTPServer):
 					"data": messageData["data"]
 				}))
 			# Save whiteboard
-			#whiteboard.saveObjectList()
+			whiteboard.saveObjectList()
 	def on_ws_disconnect(self, c: wslib.Client):
 		pass
 
