@@ -50,72 +50,23 @@ class SceneObject {
 	remove() {
 		objects.splice(objects.indexOf(this), 1)
 	}
-	removeAndSendErase() {
-		this.remove()
-		return SceneObject.sendErase(this.id)
-	}
-	sendEdit() {
-		// this.elm.setAttribute("class", "unverified")
-		// SceneObject.sendCreateObject(this.id, { type: "...", ... })
-	}
-	revertToServer() {
-		post(location.pathname + "get", this.id.toString())
-	}
 	createData() {
 		return {}
 	}
 	/**
-	 * @param {number} id
-	 * @param {Object<string, any>} data
-	 */
-	static sendCreateObject(id, data) {
-		return post(location.pathname + "create_object", JSON.stringify({
-			"id": id,
-			"data": data
-		}))
-	}
-	/**
-	 * @param {number} id
-	 */
-	static sendErase(id) {
-		return post(location.pathname + "erase", id.toString())
-	}
-	/**
+	 * @param {String} typeID
 	 * @param {Object<string, any>} data
 	 * @param {number} id
 	 * @returns {SceneObject}
 	 */
-	static createFromDataAndID(data, id) {
-		var objClass = objectTypes[data["type"]]
+	static createFromDataAndID(typeID, data, id) {
+		var objClass = objectTypes[typeID]
 		var o = new objClass(id, data)
 		o.add()
 		return o
 	}
-	/**
-	 * @param {Object<string, any>} data
-	 * @param {number} id
-	 * @returns {SceneObject}
-	 */
-	static createAndSendFromDataAndID(data, id) {
-		var o = this.createFromDataAndID(data, id)
-		this.sendCreateObject(id, data)
-		return o
-	}
-	/**
-	 * @param {Object<string, any>} data
-	 * @returns {SceneObject}
-	 */
-	static createFromData(data) {
-		var id = Math.floor(Math.random() * 100000)
-		return this.createFromDataAndID(data, id)
-	}
-	/**
-	 * @param {Object<string, any>} data
-	 */
-	static createAndSendFromData(data) {
-		var o = this.createFromData(data)
-		this.sendCreateObject(o.id, data)
-		return o
+	static generateObjectID() {
+		return Math.floor(Math.random() * 10000000)
 	}
 	/** @param {{ x: number, y: number }} pos */
 	collidepoint(pos) {
@@ -171,10 +122,6 @@ class DrawingObject extends SceneObject {
 	remove() {
 		super.remove()
 		this.elm.remove()
-	}
-	sendEdit() {
-		this.elm.setAttribute("opacity", "0.5")
-		doAction(new USIEditObject(this, this.data, this.createData()))
 	}
 	createData() {
 		return { type: "drawing", d: this.path, color: this.color }
@@ -247,6 +194,7 @@ class TextObject extends SceneObject {
 		})
 		this.elm.addEventListener("blur", (event) => {
 			_text.text = _text.elm.value
+			// @ts-ignore
 			_text.sendEdit()
 		})
 		requestAnimationFrame(() => _text.update())
@@ -297,10 +245,6 @@ class TextObject extends SceneObject {
 		this.pos.y += y
 		this.update()
 	}
-	sendEdit() {
-		this.elm.setAttribute("class", "unverified")
-		doAction(new USIEditObject(this, this.data, this.createData()))
-	}
 	createData() {
 		return { type: "text", text: this.elm.value, pos: this.pos }
 	}
@@ -324,87 +268,6 @@ var objects = []
 
 /** @type {SceneObject[]} */
 var selection = []
-
-/**
- * @param {number} id
- * @param {Object<string, any>} data
- */
-function importObject(id, data) {
-	var wasSelected = false
-	for (var i = 0; i < objects.length; i++) {
-		if (objects[i].id == id) {
-			// check for selection
-			if (selection.includes(objects[i])) {
-				selection.splice(selection.indexOf(objects[i]), 1)
-				wasSelected = true
-			}
-			// data is over-written
-			objects[i].remove()
-		}
-	}
-	// create the object
-	var o = SceneObject.createFromDataAndID(data, id)
-	o.verify()
-	// re-select
-	if (wasSelected) {
-		selection.push(o)
-		o.update()
-	}
-}
-/**
- * Erase the object with the provided ID. Also, send this to the server
- * @param {number} id
- */
-function removeAndSendEraseForID(id) {
-	for (var i = 0; i < objects.length; i++) {
-		if (objects[i].id == id) {
-			// erase this
-			return objects[i].removeAndSendErase()
-		}
-	}
-}
-/**
- * Erase the object with the provided ID
- * @param {number} id
- */
-function importErase(id) {
-	for (var i = 0; i < objects.length; i++) {
-		if (objects[i].id == id) {
-			// erase this
-			objects[i].remove()
-			return
-		}
-	}
-}
-async function getMessages() {
-	try {
-		var data = await get("/whiteboard_data/messages/" + location.pathname.split("/").at(-2))
-	} catch (e) {
-		alert("Lost connection with the server!")
-		throw e
-	}
-	/** @type {({ type: "create_object", id: number, data: Object<string, any> } | { "type": "erase", id: number })[]} */
-	var messages = JSON.parse(data)
-	for (var i = 0; i < messages.length; i++) {
-		var msg = messages[i]
-		if (msg.type == "create_object") {
-			importObject(msg.id, msg.data)
-		}
-		if (msg.type == "erase") {
-			importErase(msg.id)
-		}
-	}
-}
-var debug = false
-async function getMessagesLoop() {
-	while (true) {
-		var time = new Date()
-		await getMessages()
-		if (debug) console.log(new Date().getTime() - time.getTime())
-		await new Promise((resolve) => setTimeout(resolve, 600))
-	}
-}
-post(location.pathname + "connect", clientID.toString()).then(() => getMessagesLoop())
 
 /** @type {{ x: number, y: number, zoom: number }} */
 var viewPos = { x: 0, y: 0, zoom: 1 }
@@ -477,16 +340,53 @@ function erase(pos) {
 	var o = [...objects]
 	for (var i = 0; i < o.length; i++) {
 		if (o[i].collidepoint(pos)) {
+			// @ts-ignore
 			doAction(new USIEraseObject(o[i].data, o[i]))
 		}
 	}
 }
 
+class Connection {
+	constructor() {
+		var ws = new WebSocket("ws://" + location.hostname + ":8062/")
+		this.webSocket = ws
+		ws.addEventListener("open", () => {
+			ws.send(location.pathname.split("/").at(-2) ?? "ERROR")
+		})
+		ws.addEventListener("message", this.onmessage.bind(this))
+	}
+	/**
+	 * @param {MessageEvent<string>} msgEvent
+	 */
+	onmessage(msgEvent) {
+		/** @type {{ type: "create_object", objectID: number, typeID: string, data: Object }} */
+		var message = JSON.parse(msgEvent.data)
+		if (message.type == "create_object") {
+			var obj = SceneObject.createFromDataAndID(message.typeID, message.data, message.objectID)
+			obj.verify()
+		}
+	}
+	/**
+	 * @param {string} typeID
+	 * @param {number} objectID
+	 * @param {Object} data
+	 */
+	createObject(typeID, objectID, data) {
+		this.webSocket.send(JSON.stringify({
+			action: "create_object",
+			objectID,
+			typeID,
+			data
+		}))
+	}
+}
+var connection = new Connection()
+
 /**
  * List of drawing modes.
  * Each one takes in a list of stage points (drawn by the mouse),
  * and returns another list of stage points (to display).
- * @typedef {(points: { x: number, y: number}[]) => { x: number, y: number}[]} DrawingMode
+ * @typedef {(points: { x: number, y: number }[]) => { x: number, y: number }[]} DrawingMode
  * @type {Object<string, DrawingMode>}
  */
 var drawingModes = {
@@ -687,8 +587,7 @@ class DrawTouchMode extends TouchMode {
 		this.elm.remove()
 		// Add drawing to screen
 		if (this.points.length > 6) {
-			doAction(new USICreateObject({
-				"type": "drawing",
+			doAction(new USICreateObject("drawing", SceneObject.generateObjectID(), {
 				"d": this.drawing_mode(this.points),
 				"color": this.color
 			}))
@@ -725,8 +624,7 @@ class TextTouchMode extends TouchMode {
 	 * @param {number} previousY
 	 */
 	onEnd(previousX, previousY) {
-		doAction(new USICreateObject({
-			"type": "text",
+		doAction(new USICreateObject("text", SceneObject.generateObjectID(), {
 			"text": "Enter text here",
 			"pos": getStagePosFromScreenPos(previousX, previousY)
 		}))
@@ -820,6 +718,7 @@ class MoveSelectionTouchMode extends TouchMode {
 		// Save selection
 		for (var i = 0; i < selection.length; i++) {
 			var o = selection[i]
+			// @ts-ignore
 			doAction(new USIEditObject(o, null, o.createData()))
 		}
 	}
@@ -831,6 +730,7 @@ class MoveSelectionTouchMode extends TouchMode {
 		// Revert all the items
 		for (var i = 0; i < selection.length; i++) {
 			var o = selection[i]
+			// @ts-ignore
 			o.revertToServer()
 		}
 	}
@@ -1074,53 +974,15 @@ class DummyUndoStackItem extends UndoStackItem {
 	redo() { console.log("redo", this.n) }
 }
 class USICreateObject extends UndoStackItem {
-	/** @param {Object} data */
-	constructor(data) { super(); this.data = data; this.obj = null; }
-	undo() { removeAndSendEraseForID(this.obj == null ? -1 : this.obj.id); }
-	redo() { this.obj = SceneObject.createAndSendFromData(this.data) }
-}
-class USIEraseObject extends UndoStackItem {
 	/**
+	 * @param {string} typeID
+	 * @param {number} objectID
 	 * @param {Object} data
-	 * @param {SceneObject} obj
 	 */
-	constructor(data, obj) { super(); this.data = data; this.obj = obj; }
-	undo() { this.obj = SceneObject.createAndSendFromData(this.data) }
-	redo() { removeAndSendEraseForID(this.obj.id) }
-}
-class USIEditObject extends UndoStackItem {
-	/**
-	 * @param {SceneObject} obj
-	 * @param {Object | null} oldData
-	 * @param {Object} newData
-	 */
-	constructor(obj, oldData, newData) { super(); this.oldData = oldData; this.newData = newData; this.obj = obj; }
-	undo() {
-		if (this.oldData != null) {
-			// erase the old object
-			importErase(this.obj.id)
-			// record if selected
-			var selected = selection.includes(this.obj)
-			selection.splice(selection.indexOf(this.obj), 1)
-			// recreate the object
-			this.obj = SceneObject.createAndSendFromDataAndID(this.oldData, this.obj.id)
-			// re-select
-			if (selected) selection.push(this.obj)
-			updateSelectionWindow()
-		} else this.obj.revertToServer()
-	}
-	redo() {
-		// erase the old object
-		importErase(this.obj.id)
-		// record if selected
-		var selected = selection.includes(this.obj)
-		selection.splice(selection.indexOf(this.obj), 1)
-		// recreate the object
-		this.obj = SceneObject.createAndSendFromDataAndID(this.newData, this.obj.id)
-		// re-select
-		if (selected) selection.push(this.obj)
-		updateSelectionWindow()
-	}
+	constructor(typeID, objectID, data) { super(); this.typeID = typeID; this.objectID = objectID; this.data = data; this.obj = null; }
+	// @ts-ignore
+	undo() { removeAndSendEraseForID(this.obj == null ? -1 : this.obj.id); }
+	redo() { this.obj = SceneObject.createFromDataAndID(this.typeID, this.data, this.objectID); connection.createObject(this.typeID, this.objectID, this.data); }
 }
 
 /** @type {UndoStackItem[]} */
@@ -1139,6 +1001,7 @@ window.addEventListener("keydown", (e) => {
 	}
 	if (e.key == "Backspace" || e.key == "Delete") {
 		// Delete selection
+		// @ts-ignore
 		selection.forEach((v) => v.removeAndSendErase());
 		selection = [];
 		updateSelectionWindow();

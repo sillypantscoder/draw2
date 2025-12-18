@@ -87,39 +87,6 @@ document.querySelector(".mainContainer")?.appendChild(theSVG)
 theSVG.id = "theSVG"
 
 /**
- * @param {string} path
- * @returns {Promise<string>}
- */
-function get(path) {
-	return new Promise((resolve, reject) => {
-		var x = new XMLHttpRequest()
-		x.open("GET", path)
-		x.addEventListener("loadend", () => {
-			if (x.status == 200) resolve(x.responseText)
-			else reject(x.status)
-		})
-		x.send()
-	})
-}
-/**
- * @param {string} path
- * @param {string} body
- * @returns {Promise<void>}
- */
-function post(path, body) {
-	return new Promise((resolve) => {
-		var x = new XMLHttpRequest()
-		x.open("POST", path)
-		x.addEventListener("loadend", () => {
-			resolve()
-		})
-		x.send(body)
-	})
-}
-
-var clientID = Math.floor(Math.random() * 100000000)
-
-/**
  * @param {{ x: number, y: number }[]} points
  */
 function pointsToPath(points) {

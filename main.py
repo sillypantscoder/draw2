@@ -1,8 +1,10 @@
 from server_lib import SafeDict, HTTPServer, HTTPResponse, read_file
+import wslib
 import typing
 import json
 import datetime
 import os
+import random
 
 hostName = "0.0.0.0"
 serverPort = 8060
@@ -17,7 +19,8 @@ def dt(time: datetime.datetime | None = None) -> str:
 		" at " + str(((t.hour - 1) % 12) + 1) + ":" + str(t.minute).rjust(2, '0') + ":" + str(t.second).rjust(2, '0') + " " + ("AM" if t.hour < 12 else "PM")
 
 class SceneObject(typing.TypedDict):
-	id: int
+	objectID: int
+	typeID: str
 	data: dict[str, typing.Any]
 
 class Whiteboard:
@@ -26,21 +29,20 @@ class Whiteboard:
 		self.created: datetime.datetime = datetime.datetime.now()
 		self.objects: list[SceneObject] = []
 		self.id = id
-		self.temp_messages: list[typing.Any] = []
 	@staticmethod
-	def nextID():
-		id = 0
+	def generateID():
+		id = random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ") + random.choice("0123456789")
 		while os.path.exists(f"objects/{id}.json"):
-			id += 1
-		return str(id)
-	def saveObjectList(self):
-		f = open(f"whiteboards/{self.id}.json", "w")
-		f.write(json.dumps({
-			"name": self.name,
-			"created": self.created.isoformat(),
-			"objects": self.objects
-		}))
-		f.close()
+			id += "_" + random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ") + random.choice("0123456789")
+		return id
+	# def saveObjectList(self):
+	# 	f = open(f"whiteboards/{self.id}.json", "w")
+	# 	f.write(json.dumps({
+	# 		"name": self.name,
+	# 		"created": self.created.isoformat(),
+	# 		"objects": self.objects
+	# 	}))
+	# 	f.close()
 	def loadObjectList(self):
 		if not os.path.isfile(f"whiteboards/{self.id}.json"): return
 		f = open(f"whiteboards/{self.id}.json", "r")
@@ -49,6 +51,8 @@ class Whiteboard:
 		self.name = data["name"]
 		self.created = datetime.datetime.fromisoformat(data["created"])
 		self.objects = data["objects"]
+		for o in self.objects:
+			o["typeID"] = o["data"]["typeID"]
 		print("[Draw] Loaded", len(self.objects), "objects for whiteboard with id", self.id, "(name: " + repr(self.name) + ")")
 
 class Draw2Server(HTTPServer):
@@ -61,6 +65,18 @@ class Draw2Server(HTTPServer):
 			w = Whiteboard(f.split(".")[0])
 			w.loadObjectList()
 			self.whiteboards.append(w)
+		# Start WebSocket server
+		self.ws_server = wslib.WSServer(serverPort + 1)
+		self.ws_server.events_on_connect.append(self.on_ws_connect)
+		self.ws_server.events_on_message.append(self.on_ws_message)
+		self.ws_server.events_on_disconnect.append(self.on_ws_disconnect)
+		self.ws_server.run()
+		self.clientWhiteboards: dict[int, Whiteboard | None] = {}
+	def getWhiteboard(self, id: str):
+		for w in self.whiteboards:
+			if w.id == id:
+				return w
+		raise KeyError(id)
 	def get(self, path: str, query: SafeDict, headers: SafeDict, cookies: SafeDict) -> HTTPResponse:
 		if path == "/":
 			return {
@@ -106,26 +122,6 @@ class Draw2Server(HTTPServer):
 				},
 				"content": read_file("client/whiteboard.html")
 			}
-		elif path.startswith("/whiteboard_data/messages/"):
-			board_name = path.split("/")[3]
-			if board_name not in [w.id for w in self.whiteboards]:
-				return {
-					"status": 404,
-					"headers": {
-						"Content-Type": "text/html"
-					},
-					"content": b""
-				}
-			board = [w for w in self.whiteboards if w.id == board_name][0]
-			r = json.dumps(board.temp_messages[:500])
-			board.temp_messages = board.temp_messages[500:]
-			return {
-				"status": 200,
-				"headers": {
-					"Content-Type": "text/json"
-				},
-				"content": r.encode("UTF-8")
-			}
 		elif path == "/whiteboard.js":
 			return {
 				"status": 200,
@@ -143,7 +139,7 @@ class Draw2Server(HTTPServer):
 	def post(self, path: str, query: SafeDict, body: bytes) -> HTTPResponse:
 		if path == "/new":
 			name = body.decode("UTF-8")
-			w = Whiteboard(Whiteboard.nextID())
+			w = Whiteboard(Whiteboard.generateID())
 			self.whiteboards.append(w)
 			w.name = name
 			print(f"[Draw] [{dt()}] New whiteboard with id:", w.id, "name:", repr(w.name), "clients")
@@ -160,111 +156,56 @@ class Draw2Server(HTTPServer):
 				if w.id == id:
 					print(f"[Draw] [{dt()}] Renamed whiteboard with id", w.id, " (old name: " + repr(w.name) + ") to:", repr(newname))
 					w.name = newname
-					w.saveObjectList()
+					# w.saveObjectList()
 			return {
 				"status": 200,
 				"headers": {},
 				"content": b""
 			}
-		elif path.startswith("/whiteboard/"):
-			board_name = path.split("/")[2]
-			if board_name not in [w.id for w in self.whiteboards]:
-				return {
-					"status": 404,
-					"headers": {
-						"Content-Type": "text/html"
-					},
-					"content": b"Not Found"
-				}
-			board = [w for w in self.whiteboards if w.id == board_name][0]
-			op = path.split("/")[3]
-			if op == "connect": # Register new client
-				clientID = int(body)
-				print(f"[Draw] [{dt()}] Login to whiteboard {board.id} with client id {clientID}; {'???'} client(s) connected")
-				# board.clients.append({
-				# 	"id": clientID,
-				# 	"lastTime": datetime.datetime.now(),
-				# 	"messages": [
-				# 		{
-				# 			"type": "create_object",
-				# 			"id": o["id"],
-				# 			"data": o["data"]
-				# 		} for o in board.objects
-				# 	]
-				# })
-				board.temp_messages.extend([
-					{
-						"type": "create_object",
-						"id": o["id"],
-						"data": o["data"]
-					} for o in board.objects
-				])
-				return {
-					"status": 200,
-					"headers": {},
-					"content": b""
-				}
-			# if op == "create_object":
-			# 	bodydata = json.loads(body)
-			# 	create = True
-			# 	for o in board.objects:
-			# 		if o["id"] == bodydata["id"]:
-			# 			o["data"] = bodydata["data"]
-			# 			create = False
-			# 	if create:
-			# 		board.objects.append({
-			# 			"id": bodydata["id"],
-			# 			"data": bodydata["data"]
-			# 		})
-			# 	for c in range(len(board.clients)):
-			# 		board.clients[c]["messages"].append({
-			# 			"type": "create_object",
-			# 			"id": bodydata["id"],
-			# 			"data": bodydata["data"]
-			# 		})
-			# 	board.saveObjectList()
-			# 	return {
-			# 		"status": 200,
-			# 		"headers": {},
-			# 		"content": b""
-			# 	}
-			# if op == "erase":
-			# 	id = int(body)
-			# 	for i in [*board.objects]:
-			# 		if i["id"] == id:
-			# 			board.objects.remove(i)
-			# 			for c in range(len(board.clients)):
-			# 				board.clients[c]["messages"].append({
-			# 					"type": "erase",
-			# 					"id": id
-			# 				})
-			# 	board.saveObjectList()
-			# 	return {
-			# 		"status": 200,
-			# 		"headers": {},
-			# 		"content": b""
-			# 	}
-			if op == "get":
-				id = int(body)
-				for i in [*board.objects]:
-					if i["id"] == id:
-						for c in range(len(board.clients)):
-							board.clients[c]["messages"].append({
-								"type": "create_object",
-								"id": id,
-								"data": i["data"]
-							})
-				board.saveObjectList()
-				return {
-					"status": 200,
-					"headers": {},
-					"content": b""
-				}
 		return {
 			"status": 404,
 			"headers": {},
 			"content": b""
 		}
+	def on_ws_connect(self, c: wslib.Client):
+		self.clientWhiteboards[c.id] = None
+	def on_ws_message(self, c: wslib.Client, message: str):
+		# Set associated whiteboard
+		whiteboard = self.clientWhiteboards[c.id]
+		if whiteboard == None:
+			# Set whiteboard
+			whiteboard = self.getWhiteboard(message)
+			self.clientWhiteboards[c.id] = whiteboard
+			# Get all objects
+			for o in whiteboard.objects:
+				c.sendMessage(json.dumps({
+					"type": "create_object",
+					"objectID": o["objectID"],
+					"typeID": o["typeID"],
+					"data": o["data"]
+				}))
+			return
+		# Load JSON message
+		messageData = json.loads(message)
+		if messageData["action"] == "create_object":
+			# Create object
+			whiteboard.objects.append({
+				"objectID": messageData["objectID"],
+				"typeID": messageData["typeID"],
+				"data": messageData["data"]
+			})
+			# Inform other clients
+			for otherClient in self.ws_server.clients:
+				otherClient.sendMessage(json.dumps({
+					"type": "create_object",
+					"objectID": messageData["objectID"],
+					"typeID": messageData["typeID"],
+					"data": messageData["data"]
+				}))
+			# Save whiteboard
+			#whiteboard.saveObjectList()
+	def on_ws_disconnect(self, c: wslib.Client):
+		pass
 
 if __name__ == "__main__":
 	server = Draw2Server("0.0.0.0", 8061)
