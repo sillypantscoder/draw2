@@ -53,6 +53,9 @@ textarea.unverified {
 	overflow: hidden;
 	background: black;
 	padding: 0.5em;
+	transition: opacity 0.25s ease-in-out, transform 0.25s ease-in-out;
+	opacity: 1;
+	transform: scale(1);
 }
 .menu-option {
 	padding: 0.5em;
@@ -67,6 +70,11 @@ textarea.unverified {
 .menu-option-selected {
 	filter: invert();
 }
+.menu#drawmode.hidden, .menu.selection-window:not(.active) {
+	opacity: 0;
+	transform: scale(0.9);
+	pointer-events: none;
+}
 
 .selection-window {
 	font-size: 1.3em;
@@ -75,13 +83,8 @@ textarea.unverified {
 	left: unset;
 	right: 0em;
 	padding: 1em;
-	bottom: -11em;
-	transition: bottom ease-in-out 0.4s;
 }
-.selection-window.active {
-	bottom: 0em;
-}
-#selection-s.hidden, #drawmode.hidden {
+#selection-s.hidden {
 	display: none;
 }
 .selection-window button {
@@ -108,16 +111,19 @@ textarea.unverified {
 			</div>
 			<!-- <div class="menu-button" data-mode="Settings"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><rect x="8" y="2" width="4" height="16" fill="white" /><rect x="8" y="2" width="4" height="16" transform="rotate(60)" transform-origin="center" fill="white" /><rect x="8" y="2" width="4" height="16" transform="rotate(120)" transform-origin="center" fill="white" /><circle cx="10" cy="10" r="6" fill="white" /><circle cx="10" cy="10" r="3" fill="black" /></svg></div> -->
 		</div>
-		<div class="menu" style="left: 8em; padding: 1em;">
+		<div class="menu" style="bottom: 12em; padding: 1em;">
 			<div style="color: white;">Mode: <b id="mode-output">Draw</b></div>
-			<div style="color: white;" id="drawmode">Drawing Mode: <select oninput="selectedDrawingMode = event.target.value; event.target.blur()">
+			<div><button onclick="whiteboard.undo()">Undo</button><button onclick="whiteboard.redo()">Redo</button></div>
+		</div>
+		<div class="menu" style="left: 8em; padding: 1em; color: white;" id="drawmode">
+			<div>Drawing Mode: <select oninput="selectedDrawingMode = event.target.value; event.target.blur()">
 				<option selected>Normal</option>
 				<option>Line</option>
 				<option>Rectangle</option>
 				<option>Circle</option>
 				<option>Ellipse</option>
 			</select></div>
-			<div><select id="draw-color" oninput="this.blur()">
+			<div>Color: <select id="draw-color" oninput="this.blur()">
 				<option value="black" selected>Black</option>
 				<option value="red">Red</option>
 				<option value="orange">Orange</option>
@@ -133,7 +139,6 @@ textarea.unverified {
 				<option value="gray">Gray</option>
 				<option value="brown">Brown</option>
 			</select></div>
-			<div><button onclick="whiteboard.undo()">Undo</button><button onclick="whiteboard.redo()">Redo</button></div>
 		</div>
 		<div class="menu selection-window">
 			<div style="color: white;"><b id="selection-number">0</b> item<span id="selection-s">s</span> selected</div>
