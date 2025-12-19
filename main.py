@@ -186,7 +186,7 @@ class Draw2Server(HTTPServer):
 		# Load JSON message
 		messageData = json.loads(message)
 		if messageData["action"] == "create_object":
-			# Create object
+			# === Create object ===
 			whiteboard.objects.append({
 				"objectID": messageData["objectID"],
 				"typeID": messageData["typeID"],
@@ -194,16 +194,39 @@ class Draw2Server(HTTPServer):
 			})
 			# Inform other clients
 			for otherClient in self.ws_server.clients:
-				otherClient.sendMessage(json.dumps({
-					"type": "create_object",
-					"objectID": messageData["objectID"],
-					"typeID": messageData["typeID"],
-					"data": messageData["data"]
-				}))
+				if self.clientWhiteboards[otherClient.id] == whiteboard:
+					otherClient.sendMessage(json.dumps({
+						"type": "create_object",
+						"objectID": messageData["objectID"],
+						"typeID": messageData["typeID"],
+						"data": messageData["data"]
+					}))
 			# Save whiteboard
 			whiteboard.saveObjectList()
+		elif messageData["action"] == "remove_object":
+			# === Remove object ===
+			o = None
+			for checkObj in whiteboard.objects:
+				if checkObj["objectID"] == messageData["objectID"]:
+					o = checkObj
+			if o == None: c.sendMessage(json.dumps({
+				"type": "error",
+				"data": f"Cannot remove object with ID {messageData['objectID']} as it does not exist"
+			}))
+			else:
+				# Actually remove the object
+				whiteboard.objects.remove(o)
+				# Inform other clients
+				for otherClient in self.ws_server.clients:
+					if self.clientWhiteboards[otherClient.id] == whiteboard:
+						otherClient.sendMessage(json.dumps({
+							"type": "remove_object",
+							"objectID": messageData["objectID"]
+						}))
+				# Save whiteboard
+				whiteboard.saveObjectList()
 	def on_ws_disconnect(self, c: wslib.Client):
-		pass
+		del self.clientWhiteboards[c.id]
 
 if __name__ == "__main__":
 	server = Draw2Server("0.0.0.0", 8061)

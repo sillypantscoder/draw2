@@ -34,6 +34,7 @@ document.querySelector(".menu")?.addEventListener("click", (event) => {
 }, false)
 
 class SceneObject {
+	typeID = "[ERROR]"
 	/**
 	 * @param {number} id
 	 * @param {Object<string, any>} data
@@ -46,6 +47,7 @@ class SceneObject {
 		objects.push(this)
 	}
 	verify() {}
+	unverify() {}
 	update() {}
 	remove() {
 		objects.splice(objects.indexOf(this), 1)
@@ -87,6 +89,7 @@ class SceneObject {
 	}
 }
 class DrawingObject extends SceneObject {
+	typeID = "drawing"
 	/**
 	 * @param {number} id
 	 * @param {Object<string, any>} data
@@ -107,6 +110,9 @@ class DrawingObject extends SceneObject {
 	}
 	verify() {
 		this.elm.removeAttribute("opacity")
+	}
+	unverify() {
+		this.elm.setAttribute("opacity", "0.5")
 	}
 	update() {
 		this.elm.setAttribute("d", pointsToPath(this.path.map((v) => getScreenPosFromStagePos(v.x, v.y))))
@@ -160,6 +166,7 @@ class DrawingObject extends SceneObject {
 	}
 }
 class TextObject extends SceneObject {
+	typeID = "text"
 	/**
 	 * @param {number} id
 	 * @param {Object<string, any>} data
@@ -205,6 +212,9 @@ class TextObject extends SceneObject {
 	}
 	verify() {
 		this.elm.removeAttribute("class")
+	}
+	unverify() {
+		this.elm.setAttribute("class", "unverified")
 	}
 	update() {
 		if (document.activeElement != this.elm) this.elm.value = this.text
@@ -340,10 +350,27 @@ function erase(pos) {
 	var o = [...objects]
 	for (var i = 0; i < o.length; i++) {
 		if (o[i].collidepoint(pos)) {
-			// @ts-ignore
-			doAction(new USIEraseObject(o[i].data, o[i]))
+			doAction(new USIEraseObject(o[i].typeID, o[i].objectID, o[i].data))
 		}
 	}
+}
+/** @param {number} objectID */
+function findObject(objectID) {
+	for (var o of objects) {
+		if (o.objectID == objectID) {
+			return o;
+		}
+	}
+	throw new Error("Object not found with ID: " + objectID)
+}
+/** @param {number} objectID */
+function findObjectSafe(objectID) {
+	for (var o of objects) {
+		if (o.objectID == objectID) {
+			return o;
+		}
+	}
+	return undefined;
 }
 
 class Connection {
@@ -359,20 +386,30 @@ class Connection {
 	 * @param {MessageEvent<string>} msgEvent
 	 */
 	onmessage(msgEvent) {
-		/** @type {{ type: "create_object", objectID: number, typeID: string, data: Object }} */
+		/** @type {{ type: "error", data: string } | { type: "create_object", objectID: number, typeID: string, data: Object } | { type: "remove_object", objectID: number }} */
 		var message = JSON.parse(msgEvent.data)
-		if (message.type == "create_object") {
+		if (message.type == "error") {
+			console.error("[Server]", message.data)
+		} else if (message.type == "create_object") {
 			// Search for existing object
-			var obj = null
-			for (var o of objects) {
-				if (o.objectID == message.objectID) obj = o;
-			}
+			var obj = findObjectSafe(message.objectID)
 			// Create new object?
-			if (obj == null) {
+			if (obj == undefined) {
 				obj = SceneObject.createFromDataAndID(message.typeID, message.data, message.objectID)
 			}
 			// Verify object!
 			obj.verify()
+		} else if (message.type == "remove_object") {
+			// Find object
+			var obj = findObjectSafe(message.objectID)
+			// Remove
+			if (obj == undefined) {
+				console.error("Can't remove nonexistent object with ID:", message.objectID)
+			} else {
+				obj.remove();
+			}
+		} else {
+			console.error("Got mysterious message from server:", message)
 		}
 	}
 	/**
@@ -386,6 +423,15 @@ class Connection {
 			objectID,
 			typeID,
 			data
+		}))
+	}
+	/**
+	 * @param {number} objectID
+	 */
+	removeObject(objectID) {
+		this.webSocket.send(JSON.stringify({
+			action: "remove_object",
+			objectID
 		}))
 	}
 }
@@ -973,14 +1019,18 @@ theSVG.parentElement?.addEventListener("touchend", (e) => {
 
 class UndoStackItem {
 	constructor() {}
-	undo() {}
-	redo() {}
+	do() { throw new Error(`"UndoStackItem" is an abstract class, "do" must be overridden`); }
+	/** @returns {UndoStackItem} */
+	invert() { throw new Error(`"UndoStackItem" is an abstract class, "invert" must be overridden`); }
 }
 class DummyUndoStackItem extends UndoStackItem {
-	/** @param {number} n */
-	constructor(n) { super(); this.n = n; }
-	undo() { console.log("undo", this.n) }
-	redo() { console.log("redo", this.n) }
+	/**
+	 * @param {number} n
+	 * @param {boolean} inverted
+	 */
+	constructor(n, inverted) { super(); this.n = n; this.inverted = inverted; }
+	do() { console.log(this.inverted ? "redo" : "undo", this.n) }
+	invert() { return new DummyUndoStackItem(this.n, !this.inverted) }
 }
 class USICreateObject extends UndoStackItem {
 	/**
@@ -988,10 +1038,19 @@ class USICreateObject extends UndoStackItem {
 	 * @param {number} objectID
 	 * @param {Object} data
 	 */
-	constructor(typeID, objectID, data) { super(); this.typeID = typeID; this.objectID = objectID; this.data = data; this.obj = null; }
-	// @ts-ignore
-	undo() { removeAndSendEraseForID(this.obj == null ? -1 : this.obj.objectID); }
-	redo() { this.obj = SceneObject.createFromDataAndID(this.typeID, this.data, this.objectID); connection.createObject(this.typeID, this.objectID, this.data); }
+	constructor(typeID, objectID, data) { super(); this.typeID = typeID; this.objectID = objectID; this.data = data; }
+	do() { SceneObject.createFromDataAndID(this.typeID, this.data, this.objectID); connection.createObject(this.typeID, this.objectID, this.data); }
+	invert() { return new USIEraseObject(this.typeID, this.objectID, this.data) }
+}
+class USIEraseObject extends UndoStackItem {
+	/**
+	 * @param {string} typeID
+	 * @param {number} objectID
+	 * @param {Object} data
+	 */
+	constructor(typeID, objectID, data) { super(); this.typeID = typeID; this.objectID = objectID; this.data = data; }
+	do() { findObject(this.objectID).unverify(); connection.removeObject(this.objectID); }
+	invert() { return new USICreateObject(this.typeID, this.objectID, this.data) }
 }
 
 /** @type {UndoStackItem[]} */
@@ -1030,8 +1089,8 @@ window.addEventListener("keyup", (e) => {
  * @param {UndoStackItem} item
  */
 function doAction(item) {
-	item.redo()
-	undo_stack.push(item)
+	item.do()
+	undo_stack.push(item.invert())
 	redo_stack = []
 	updateUndoButtons()
 }
@@ -1041,9 +1100,9 @@ function undo() {
 	var item = undo_stack.pop()
 	if (item == undefined) return
 	// Undo
-	item.undo()
+	item.do()
 	// Add to redo stack
-	redo_stack.push(item)
+	redo_stack.push(item.invert())
 	// Update
 	updateUndoButtons()
 }
@@ -1052,9 +1111,9 @@ function redo() {
 	var item = redo_stack.pop()
 	if (item == undefined) return
 	// Redo
-	item.redo()
+	item.do()
 	// Add back to undo stack
-	undo_stack.push(item)
+	undo_stack.push(item.invert())
 	// Update
 	updateUndoButtons()
 }
