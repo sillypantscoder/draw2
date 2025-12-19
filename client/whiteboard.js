@@ -80,6 +80,13 @@ class SceneObject {
 	}
 	/**
 	 * @param {Viewport} viewport
+	 * @returns {{ x: number, y: number, w: number, h: number }}
+	 */
+	getBoundingRect(viewport) {
+		throw new Error()
+	}
+	/**
+	 * @param {Viewport} viewport
 	 * @param {{ x: number, y: number }} pos
 	 */
 	collidepoint(viewport, pos) {
@@ -92,6 +99,13 @@ class SceneObject {
 	 */
 	colliderect(viewport, pos, size) {
 		return true
+	}
+	/**
+	 * @param {number} dx
+	 * @param {number} dy
+	 */
+	linearMove(dx, dy) {
+		this.editedTime = Date.now()
 	}
 	/** @returns {string} */
 	// @ts-ignore
@@ -133,6 +147,24 @@ class DrawingObject extends SceneObject {
 	}
 	/**
 	 * @param {Viewport} viewport
+	 * @returns {{ x: number, y: number, w: number, h: number }}
+	 */
+	getBoundingRect(viewport) {
+		let minX = this.path[0].x;
+		let minY = this.path[0].y;
+		let maxX = this.path[0].x;
+		let maxY = this.path[0].y;
+		for (let i = 1; i < this.path.length; i++) {
+			const pt = this.path[i];
+			if (pt.x < minX) minX = pt.x;
+			if (pt.y < minY) minY = pt.y;
+			if (pt.x > maxX) maxX = pt.x;
+			if (pt.y > maxY) maxY = pt.y;
+		}
+		return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+	}
+	/**
+	 * @param {Viewport} viewport
 	 * @param {{ x: number, y: number }} pos
 	 */
 	collidepoint(viewport, pos) {
@@ -155,6 +187,18 @@ class DrawingObject extends SceneObject {
 			if (px >= pos.x && px <= pos.x + size.x && py >= pos.y && py <= pos.y + size.y) return true
 		}
 		return false;
+	}
+	/**
+	 * @param {number} dx
+	 * @param {number} dy
+	 */
+	linearMove(dx, dy) {
+		for (var pos of this.path) {
+			pos.x += dx;
+			pos.y += dy;
+		}
+		this.data.d = this.path
+		super.linearMove(dx, dy);
 	}
 }
 class TextObject extends SceneObject {
@@ -245,6 +289,21 @@ class TextObject extends SceneObject {
 	}
 	/**
 	 * @param {Viewport} viewport
+	 * @returns {{ x: number, y: number, w: number, h: number }}
+	 */
+	getBoundingRect(viewport) {
+		var elementRect = this.elm.getBoundingClientRect()
+		var stageSize = { x: elementRect.width / viewport.zoom, y: elementRect.height / viewport.zoom }
+		// stagePos = this.pos
+		return {
+			x: this.pos.x,
+			y: this.pos.y,
+			w: stageSize.x,
+			h: stageSize.y
+		}
+	}
+	/**
+	 * @param {Viewport} viewport
 	 * @param {{ x: number, y: number }} pos
 	 */
 	collidepoint(viewport, pos) {
@@ -283,6 +342,73 @@ const objectTypes = (() => {
 	}
 	return objectTypes;
 })();
+
+class Handle {
+	/** @param {Viewport} viewport */
+	constructor(viewport) {
+		this.viewport = viewport
+		this.pos = { x: 0, y: 0 }
+		this.isDragging = false;
+	}
+	/**
+	 * @param {number} x
+	 * @param {number} y
+	 */
+	moveTo(x, y) {
+		this.pos.x = x
+		this.pos.y = y
+	}
+	finishMovement() {
+		this.isDragging = false;
+	}
+}
+class LinearMovementHandle extends Handle {
+	/**
+	 * @param {Viewport} viewport
+	 * @param {SceneObject[]} sourceObjects
+	 */
+	constructor(viewport, sourceObjects) {
+		super(viewport)
+		this.sources = sourceObjects
+		// Find handle position
+		var leftPos = Infinity;
+		var topPos = Infinity;
+		var rightPos = -Infinity;
+		var bottomPos = -Infinity;
+		for (var o of this.sources) {
+			var rect = o.getBoundingRect(this.viewport)
+			if (rect.x < leftPos) leftPos = rect.x
+			if (rect.y < topPos) topPos = rect.y
+			if (rect.x + rect.w > rightPos) rightPos = rect.x + rect.w
+			if (rect.y + rect.h > bottomPos) bottomPos = rect.y + rect.h
+		}
+		// if (Number.isFinite(leftPos)) this.pos.x = leftPos;
+		// if (Number.isFinite(topPos)) this.pos.y = topPos;
+		if (Number.isFinite(leftPos) && Number.isFinite(rightPos)) this.pos.x = (leftPos + rightPos) / 2;
+		if (Number.isFinite(topPos) && Number.isFinite(bottomPos)) this.pos.y = (topPos + bottomPos) / 2;
+	}
+	/**
+	 * @param {number} x
+	 * @param {number} y
+	 */
+	moveTo(x, y) {
+		var dx = x - this.pos.x
+		var dy = y - this.pos.y
+		this.pos.x = x
+		this.pos.y = y
+		// Move objects
+		for (var o of this.sources) {
+			o.linearMove(dx, dy)
+		}
+	}
+	finishMovement() {
+		super.finishMovement()
+		// Send edits
+		for (var o of this.sources) {
+			o.editedTime = Date.now()
+		}
+	}
+}
 
 class Viewport {
 	constructor() {
@@ -330,6 +456,20 @@ class Renderer {
 			var obj = this.whiteboard.objects[i];
 			obj.draw(this.whiteboard.viewport, mainCanvasCtx, this.whiteboard.selection.includes(obj))
 		}
+		// Render handles
+		for (var handle of this.whiteboard.selectionHandles) {
+			var screenPos = this.whiteboard.viewport.getScreenPosFromStagePos(handle.pos.x, handle.pos.y)
+			// Format circle
+			mainCanvasCtx.fillStyle = handle.isDragging ? "#008" : "white"
+			mainCanvasCtx.strokeStyle = "#008"
+			mainCanvasCtx.lineWidth = 3
+			mainCanvasCtx.globalAlpha = 1
+			// Draw circle
+			mainCanvasCtx.beginPath();
+			mainCanvasCtx.arc(screenPos.x, screenPos.y, 10, 0, Math.PI * 2);
+			mainCanvasCtx.fill();
+			mainCanvasCtx.stroke();
+		}
 		// Render touches
 		for (var i = 0; i < this.whiteboard.touchHandler.touches.length; i++) {
 			var touch = this.whiteboard.touchHandler.touches[i];
@@ -356,161 +496,6 @@ class Renderer {
 		}
 	}
 }
-class Whiteboard {
-	constructor() {
-		this.viewport = new Viewport()
-		/** @type {SceneObject[]} */
-		this.objects = []
-		/** @type {SceneObject[]} */
-		this.selection = []
-		this.connection = new Connection(this)
-		this.renderer = new Renderer(this)
-		// Undo stack objects
-		this.shiftKeyDown = false
-		/** @type {UndoStackItem[]} */
-		this.undo_stack = []
-		/** @type {UndoStackItem[]} */
-		this.redo_stack = []
-		this.addEventListeners()
-		// Touch handlers
-		this.touchHandler = new TouchHandler(this)
-		this.touchHandler.addEventListeners()
-	}
-	addEventListeners() {
-		window.addEventListener("keydown", ((/** @type {KeyboardEvent} */ e) => {
-			if (e.key == "Shift") this.shiftKeyDown = true
-			if (e.key == "Escape") {
-				// Remove selection
-				this.selection = [];
-				this.updateSelectionWindow();
-			}
-			if (e.key == "Backspace" || e.key == "Delete") {
-				// Delete selection
-				this.doAction(new USIEraseObjects(this, this.selection.map((v) => ({
-					typeID: v.getTypeID(), objectID: v.objectID, data: v.data
-				}))));
-				this.selection = [];
-				this.updateSelectionWindow();
-			}
-			if (e.ctrlKey) {
-				if (e.key == "z") this.undo()
-				if (e.key == "Z") this.redo()
-				if (e.key == "y") this.redo()
-				if (e.key == "Y") this.undo()
-			}
-		}).bind(this))
-		window.addEventListener("keyup", ((/** @type {KeyboardEvent} */ e) => {
-			if (e.key == "Shift") this.shiftKeyDown = false
-		}).bind(this))
-		window.addEventListener("Custom-Switch-Tools", (() => {
-			this.selection = []
-			this.updateSelectionWindow()
-		}).bind(this))
-		this.updateUndoButtons()
-	}
-	/** @param {SceneObject} obj */
-	add(obj) {
-		this.objects.push(obj)
-		obj.add()
-	}
-	/** @param {SceneObject} obj */
-	remove(obj) {
-		this.objects.splice(this.objects.indexOf(obj), 1)
-		obj.remove()
-	}
-	/** @param {number} objectID */
-	findObject(objectID) {
-		for (var o of this.objects) {
-			if (o.objectID == objectID) {
-				return o;
-			}
-		}
-		throw new Error("Object not found with ID: " + objectID)
-	}
-	/** @param {number} objectID */
-	findObjectSafe(objectID) {
-		for (var o of this.objects) {
-			if (o.objectID == objectID) {
-				return o;
-			}
-		}
-		return undefined;
-	}
-	/** @param {{ x: number, y: number }} pos */
-	eraseAtPoint(pos) {
-		var o = [...this.objects]
-		for (var i = 0; i < o.length; i++) {
-			if (o[i].verified && o[i].collidepoint(this.viewport, pos)) {
-				this.doAction(new USIEraseObjects(this, [{
-					typeID: o[i].getTypeID(), objectID: o[i].objectID, data: o[i].data
-				}]))
-			}
-		}
-	}
-	updateSelectionWindow() {
-		// update window
-		var window = document.querySelector(".selection-window")
-		if (window == null) throw new Error(".selection-window is missing")
-		if (this.selection.length == 0) {
-			window.classList.remove("active")
-		} else {
-			window.classList.add("active")
-		}
-		// update number
-		var number = document.querySelector("#selection-number")
-		if (number == null) throw new Error("#selection-number is missing")
-		number.textContent = this.selection.length.toString();
-		// update s
-		var s = document.querySelector("#selection-s")
-		if (s == null) throw new Error("#selection-s is missing")
-		if (this.selection.length == 1) s.classList.add("hidden");
-		else s.classList.remove("hidden");
-	}
-	/**
-	 * @param {UndoStackItem} item
-	 */
-	doAction(item) {
-		item.do()
-		this.undo_stack.push(item.invert())
-		this.redo_stack = []
-		this.updateUndoButtons()
-	}
-	undo() {
-		// Get item
-		var item = this.undo_stack.pop()
-		if (item == undefined) return
-		// Undo
-		item.do()
-		// Add to redo stack
-		this.redo_stack.push(item.invert())
-		// Update
-		this.updateUndoButtons()
-	}
-	redo() {
-		// Get item
-		var item = this.redo_stack.pop()
-		if (item == undefined) return
-		// Redo
-		item.do()
-		// Add back to undo stack
-		this.undo_stack.push(item.invert())
-		// Update
-		this.updateUndoButtons()
-	}
-	updateUndoButtons() {
-		// Undo Button
-		var u = document.querySelector("button[onclick='whiteboard.undo()']")
-		if (u == null) throw new Error("The undo button doesn't exist")
-		if (this.undo_stack.length == 0) u.setAttribute("disabled", "true")
-		else u.removeAttribute("disabled")
-		// Redo Button
-		var r = document.querySelector("button[onclick='whiteboard.redo()']")
-		if (r == null) throw new Error("The redo button doesn't exist")
-		if (this.redo_stack.length == 0) r.setAttribute("disabled", "true")
-		else r.removeAttribute("disabled")
-	}
-}
-
 class Connection {
 	/** @param {Whiteboard} whiteboard */
 	constructor(whiteboard) {
@@ -598,6 +583,170 @@ class Connection {
 		}))
 	}
 }
+class Whiteboard {
+	constructor() {
+		this.viewport = new Viewport()
+		/** @type {SceneObject[]} */
+		this.objects = []
+		/** @type {SceneObject[]} */
+		this.selection = []
+		/** @type {Handle[]} */
+		this.selectionHandles = []
+		this.connection = new Connection(this)
+		this.renderer = new Renderer(this)
+		// Undo stack objects
+		this.shiftKeyDown = false
+		/** @type {UndoStackItem[]} */
+		this.undo_stack = []
+		/** @type {UndoStackItem[]} */
+		this.redo_stack = []
+		this.addEventListeners()
+		// Touch handlers
+		this.touchHandler = new TouchHandler(this)
+		this.touchHandler.addEventListeners()
+	}
+	addEventListeners() {
+		window.addEventListener("keydown", ((/** @type {KeyboardEvent} */ e) => {
+			if (e.key == "Shift") this.shiftKeyDown = true
+			if (e.key == "Escape") {
+				// Remove selection
+				this.selection = [];
+				this.updateSelection();
+			}
+			if (e.key == "Backspace" || e.key == "Delete") {
+				// Delete selection
+				this.doAction(new USIEraseObjects(this, this.selection.map((v) => ({
+					typeID: v.getTypeID(), objectID: v.objectID, data: v.data
+				}))));
+				this.selection = [];
+				this.updateSelection();
+			}
+			if (e.ctrlKey) {
+				if (e.key == "z") this.undo()
+				if (e.key == "Z") this.redo()
+				if (e.key == "y") this.redo()
+				if (e.key == "Y") this.undo()
+			}
+		}).bind(this))
+		window.addEventListener("keyup", ((/** @type {KeyboardEvent} */ e) => {
+			if (e.key == "Shift") this.shiftKeyDown = false
+		}).bind(this))
+		window.addEventListener("Custom-Switch-Tools", (() => {
+			this.selection = []
+			this.updateSelection()
+		}).bind(this))
+		this.updateUndoButtons()
+	}
+	/** @param {SceneObject} obj */
+	add(obj) {
+		this.objects.push(obj)
+		obj.add()
+	}
+	/** @param {SceneObject} obj */
+	remove(obj) {
+		this.objects.splice(this.objects.indexOf(obj), 1)
+		obj.remove()
+	}
+	/** @param {number} objectID */
+	findObject(objectID) {
+		for (var o of this.objects) {
+			if (o.objectID == objectID) {
+				return o;
+			}
+		}
+		throw new Error("Object not found with ID: " + objectID)
+	}
+	/** @param {number} objectID */
+	findObjectSafe(objectID) {
+		for (var o of this.objects) {
+			if (o.objectID == objectID) {
+				return o;
+			}
+		}
+		return undefined;
+	}
+	/** @param {{ x: number, y: number }} pos */
+	eraseAtPoint(pos) {
+		var o = [...this.objects]
+		for (var i = 0; i < o.length; i++) {
+			if (o[i].verified && o[i].collidepoint(this.viewport, pos)) {
+				this.doAction(new USIEraseObjects(this, [{
+					typeID: o[i].getTypeID(), objectID: o[i].objectID, data: o[i].data
+				}]))
+			}
+		}
+	}
+	updateSelection() {
+		// update handles
+		this.selectionHandles = this.getAllHandles()
+		// update window
+		var window = document.querySelector(".selection-window")
+		if (window == null) throw new Error(".selection-window is missing")
+		if (this.selection.length == 0) {
+			window.classList.remove("active")
+		} else {
+			window.classList.add("active")
+		}
+		// update number in window
+		var number = document.querySelector("#selection-number")
+		if (number == null) throw new Error("#selection-number is missing")
+		number.textContent = this.selection.length.toString();
+		// update s in number in window
+		var s = document.querySelector("#selection-s")
+		if (s == null) throw new Error("#selection-s is missing")
+		if (this.selection.length == 1) s.classList.add("hidden");
+		else s.classList.remove("hidden");
+	}
+	getAllHandles() {
+		if (this.selection.length == 0) return [];
+		return [new LinearMovementHandle(this.viewport, this.selection)]
+	}
+	/**
+	 * @param {UndoStackItem} item
+	 */
+	doAction(item) {
+		item.do()
+		this.undo_stack.push(item.invert())
+		this.redo_stack = []
+		this.updateUndoButtons()
+	}
+	undo() {
+		// Get item
+		var item = this.undo_stack.pop()
+		if (item == undefined) return
+		// Undo
+		item.do()
+		// Add to redo stack
+		this.redo_stack.push(item.invert())
+		// Update
+		this.updateUndoButtons()
+	}
+	redo() {
+		// Get item
+		var item = this.redo_stack.pop()
+		if (item == undefined) return
+		// Redo
+		item.do()
+		// Add back to undo stack
+		this.undo_stack.push(item.invert())
+		// Update
+		this.updateUndoButtons()
+	}
+	updateUndoButtons() {
+		// Undo Button
+		var u = document.querySelector("button[onclick='whiteboard.undo()']")
+		if (u == null) throw new Error("The undo button doesn't exist")
+		if (this.undo_stack.length == 0) u.setAttribute("disabled", "true")
+		else u.removeAttribute("disabled")
+		// Redo Button
+		var r = document.querySelector("button[onclick='whiteboard.redo()']")
+		if (r == null) throw new Error("The redo button doesn't exist")
+		if (this.redo_stack.length == 0) r.setAttribute("disabled", "true")
+		else r.removeAttribute("disabled")
+	}
+}
+
+
 
 /**
  * List of drawing modes.
@@ -716,6 +865,14 @@ class TrackedTouch {
 				this.touches.push(_t[i])
 			}
 			return new PanTouchMode(this)
+		}
+		// Check if we are dragging on a handle.
+		for (var handle of this.whiteboard.selectionHandles) {
+			if (handle.isDragging) continue;
+			var handleScreenPos = this.whiteboard.viewport.getScreenPosFromStagePos(handle.pos.x, handle.pos.y)
+			if (dist(this, handleScreenPos) < 60) {
+				return new HandleDraggingTouchMode(this, handle);
+			}
 		}
 		// Then, find the selected mode in the toolbar.
 		var mode = getCurrentMode()
@@ -838,11 +995,6 @@ class DrawTouchMode extends TouchMode {
 			}]))
 		}
 	}
-	/**
-	 * @param {number} previousX
-	 * @param {number} previousY
-	 */
-	onCancel(previousX, previousY) {}
 	toString() {
 		return `DrawTouchMode { ${this.points.length} points }`
 	}
@@ -1004,7 +1156,7 @@ class SelectTouchMode extends TouchMode {
 				this.touch.whiteboard.selection.push(this.touch.whiteboard.objects[i])
 			}
 		}
-		this.touch.whiteboard.updateSelectionWindow()
+		this.touch.whiteboard.updateSelection()
 	}
 	toString() {
 		return `SelectTouchMode { start: ${this.startPos.x}, ${this.startPos.y}, end: ${this.endPos.x}, ${this.endPos.y} }`
@@ -1029,6 +1181,45 @@ class EraseTouchMode extends TouchMode {
 	}
 	toString() {
 		return `EraseTouchMode {}`
+	}
+}
+class HandleDraggingTouchMode extends TouchMode {
+	/**
+	 * @param {TrackedTouch} touch
+	 * @param {Handle} handle
+	 */
+	constructor(touch, handle) {
+		super(touch)
+		this.handle = handle
+		this.handle.isDragging = true;
+	}
+	/**
+	 * @param {number} previousX
+	 * @param {number} previousY
+	 * @param {number} newX
+	 * @param {number} newY
+	 */
+	onMove(previousX, previousY, newX, newY) {
+		var mouseStagePos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(newX, newY)
+		this.handle.moveTo(mouseStagePos.x, mouseStagePos.y)
+	}
+	/**
+	 * @param {number} previousX
+	 * @param {number} previousY
+	 */
+	onEnd(previousX, previousY) {
+		this.handle.finishMovement()
+	}
+	/**
+	 * @param {number} previousX
+	 * @param {number} previousY
+	 */
+	onCancel(previousX, previousY) {
+		// this.handle.cancel()
+		this.handle.isDragging = false;
+	}
+	toString() {
+		return `HandleTouchMode { ${this.handle} }`
 	}
 }
 
