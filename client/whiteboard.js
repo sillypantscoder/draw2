@@ -34,60 +34,60 @@ function getCurrentMode() {
 	return document.querySelector(".menu-option-selected").dataset.mode
 }
 
+(function updateViewPos() {
+	mainCanvas.width = window.innerWidth
+	mainCanvas.height = window.innerHeight
+})();
+
 class SceneObject {
 	static typeID = "[ERROR]"
 	/**
-	 * @param {Whiteboard} whiteboard
 	 * @param {number} id
 	 * @param {Object<string, any>} data
 	 */
-	constructor(whiteboard, id, data) {
-		this.whiteboard = whiteboard
+	constructor(id, data) {
 		this.data = data
 		this.objectID = id
 	}
-	add() {
-		this.whiteboard.objects.push(this)
-	}
+	add() {}
 	verify() {}
 	unverify() {}
-	update() {}
-	remove() {
-		this.whiteboard.objects.splice(this.whiteboard.objects.indexOf(this), 1)
-	}
 	/**
-	 * Creates an object given its type ID, object ID, and data. Adds the object to the screen.
-	 * @param {Whiteboard} whiteboard
+	 * @param {Viewport} viewport
+	 * @param {CanvasRenderingContext2D} canvas
+	 * @param {boolean} selected
+	 */
+	draw(viewport, canvas, selected) {}
+	remove() {}
+	/**
+	 * Creates an object given its type ID, object ID, and data. Does not add the object to the screen.
 	 * @param {String} typeID
 	 * @param {Object<string, any>} data
 	 * @param {number} id
 	 * @returns {SceneObject}
 	 */
-	static createFromDataAndID(whiteboard, typeID, data, id) {
+	static createFromDataAndID(typeID, data, id) {
 		var objClass = objectTypes[typeID]
-		var o = new objClass(whiteboard, id, data)
-		o.add()
+		var o = new objClass(id, data)
 		return o
 	}
 	static generateObjectID() {
 		return Math.floor(Math.random() * 10000000)
 	}
-	/** @param {{ x: number, y: number }} pos */
-	collidepoint(pos) {
+	/**
+	 * @param {Viewport} viewport
+	 * @param {{ x: number, y: number }} pos
+	 */
+	collidepoint(viewport, pos) {
 		return true
 	}
 	/**
+	 * @param {Viewport} viewport
 	 * @param {{ x: number, y: number }} pos
 	 * @param {{ x: number, y: number }} size
 	 */
-	colliderect(pos, size) {
+	colliderect(viewport, pos, size) {
 		return true
-	}
-	/**
-	 * @param {number} x
-	 * @param {number} y
-	 */
-	move(x, y) {
 	}
 	/** @returns {string} */
 	// @ts-ignore
@@ -96,23 +96,17 @@ class SceneObject {
 class DrawingObject extends SceneObject {
 	static typeID = "drawing"
 	/**
-	 * @param {Whiteboard} whiteboard
 	 * @param {number} id
 	 * @param {Object<string, any>} data
 	 */
-	constructor(whiteboard, id, data) {
-		super(whiteboard, id, data)
+	constructor(id, data) {
+		super(id, data)
 		/** @type {{ x: number, y: number }[]} */
 		this.path = data.d
 		this.color = data.color
 		this.elm = document.createElementNS("http://www.w3.org/2000/svg", "path")
 		this.elm.setAttribute("fill", "none")
 		this.elm.setAttribute("opacity", "0.5")
-		this.update()
-	}
-	add() {
-		super.add()
-		theSVG.appendChild(this.elm)
 	}
 	verify() {
 		this.elm.removeAttribute("opacity")
@@ -120,36 +114,41 @@ class DrawingObject extends SceneObject {
 	unverify() {
 		this.elm.setAttribute("opacity", "0.5")
 	}
-	update() {
-		const _viewport = this.whiteboard.viewport;
-		this.elm.setAttribute("d", pointsToPath(this.path.map((v) => _viewport.getScreenPosFromStagePos(v.x, v.y))))
-		// this.elm.setAttribute("stroke-width", (5 * viewPos.zoom).toString())
-		if (this.whiteboard.selection.indexOf(this) != -1) {
-			this.elm.setAttribute("stroke", "blue")
-			this.elm.setAttribute("stroke-width", "8")
-		} else {
-			this.elm.setAttribute("stroke", this.color)
-			this.elm.setAttribute("stroke-width", "5")
+	/**
+	 * @param {Viewport} viewport
+	 * @param {CanvasRenderingContext2D} canvas
+	 * @param {boolean} selected
+	 */
+	draw(viewport, canvas, selected) {
+		canvas.fillStyle = "none"
+		canvas.strokeStyle = selected ? "blue" : this.color
+		canvas.lineWidth = selected ? 8 : 5
+		// Draw lines
+		canvas.beginPath()
+		let drawPos = viewport.getScreenPosFromStagePos(this.path[0].x, this.path[0].y); canvas.moveTo(drawPos.x, drawPos.y);
+		for (var i = 1; i < this.path.length; i++) {
+			let drawPos = viewport.getScreenPosFromStagePos(this.path[i].x, this.path[i].y); canvas.lineTo(drawPos.x, drawPos.y);
 		}
+		canvas.stroke()
 	}
-	remove() {
-		super.remove()
-		this.elm.remove()
-	}
-	/** @param {{ x: number, y: number }} pos */
-	collidepoint(pos) {
+	/**
+	 * @param {Viewport} viewport
+	 * @param {{ x: number, y: number }} pos
+	 */
+	collidepoint(viewport, pos) {
 		for (var i = 0; i < this.path.length - 1; i++) {
-			if (distanceBetweenPointAndLineSegment(pos, this.path[i], this.path[i + 1]) < 3 / this.whiteboard.viewport.zoom) {
+			if (distanceBetweenPointAndLineSegment(pos, this.path[i], this.path[i + 1]) < 3 / viewport.zoom) {
 				return true
 			}
 		}
 		return false
 	}
 	/**
+	 * @param {Viewport} viewport
 	 * @param {{ x: number, y: number }} pos
 	 * @param {{ x: number, y: number }} size
 	 */
-	colliderect(pos, size) {
+	colliderect(viewport, pos, size) {
 		for (var i = 0; i < this.path.length; i++) {
 			var px = this.path[i].x
 			var py = this.path[i].y
@@ -157,27 +156,15 @@ class DrawingObject extends SceneObject {
 		}
 		return false;
 	}
-	/**
-	 * @param {number} x
-	 * @param {number} y
-	 */
-	move(x, y) {
-		for (var i = 0; i < this.path.length; i++) {
-			this.path[i].x += x
-			this.path[i].y += y
-		}
-		this.update()
-	}
 }
 class TextObject extends SceneObject {
 	static typeID = "text"
 	/**
-	 * @param {Whiteboard} whiteboard
 	 * @param {number} id
 	 * @param {Object<string, any>} data
 	 */
-	constructor(whiteboard, id, data) {
-		super(whiteboard, id, data)
+	constructor(id, data) {
+		super(id, data)
 		/** @type {{ x: number, y: number }} */
 		this.pos = data.pos
 		/** @type {string} */
@@ -209,7 +196,6 @@ class TextObject extends SceneObject {
 			// @ts-ignore
 			_text.sendEdit()
 		})
-		requestAnimationFrame(() => _text.update())
 	}
 	add() {
 		super.add()
@@ -221,13 +207,20 @@ class TextObject extends SceneObject {
 	unverify() {
 		this.elm.setAttribute("class", "unverified")
 	}
-	update() {
-		if (document.activeElement != this.elm) this.elm.value = this.text
-		const _viewport = this.whiteboard.viewport;
-		this.elm.setAttribute("style", `top: ${(this.pos.y * _viewport.zoom) + _viewport.y}px; left: ${(this.pos.x * _viewport.zoom) + _viewport.x}px; transform: scale(${_viewport.zoom}); transform-origin: 0px 0px;`)
-		this.elm.dispatchEvent(new KeyboardEvent("input"))
+	/**
+	 * @param {Viewport} viewport
+	 * @param {CanvasRenderingContext2D} canvas
+	 * @param {boolean} selected
+	 */
+	draw(viewport, canvas, selected) {
+		// No canvas drawing is needed
+		if (document.activeElement != this.elm) {
+			this.elm.value = this.text
+			this.elm.dispatchEvent(new KeyboardEvent("input"))
+		}
+		this.elm.setAttribute("style", `top: ${(this.pos.y * viewport.zoom) + viewport.y}px; left: ${(this.pos.x * viewport.zoom) + viewport.x}px; transform: scale(${viewport.zoom}); transform-origin: 0px 0px;`)
 		// Focus
-		if (this.whiteboard.selection.indexOf(this) != -1) {
+		if (selected) {
 			this.elm.classList.add("focus-shadow")
 		} else {
 			this.elm.classList.remove("focus-shadow")
@@ -237,29 +230,24 @@ class TextObject extends SceneObject {
 		super.remove()
 		this.elm.remove()
 	}
-	/** @param {{ x: number, y: number }} pos */
-	collidepoint(pos) {
-		var screenPos = this.whiteboard.viewport.getScreenPosFromStagePos(pos.x, pos.y)
+	/**
+	 * @param {Viewport} viewport
+	 * @param {{ x: number, y: number }} pos
+	 */
+	collidepoint(viewport, pos) {
+		var screenPos = viewport.getScreenPosFromStagePos(pos.x, pos.y)
 		return document.elementsFromPoint(screenPos.x, screenPos.y).includes(this.elm)
 	}
 	/**
+	 * @param {Viewport} viewport
 	 * @param {{ x: number, y: number }} pos
 	 * @param {{ x: number, y: number }} size
 	 */
-	colliderect(pos, size) {
+	colliderect(viewport, pos, size) {
 		var elementRect = this.elm.getBoundingClientRect()
-		var stageSize = { x: elementRect.width * this.whiteboard.viewport.zoom, y: elementRect.height * this.whiteboard.viewport.zoom }
+		var stageSize = { x: elementRect.width * viewport.zoom, y: elementRect.height * viewport.zoom }
 		// stagePos = this.pos
 		return pos.x <= this.pos.x + stageSize.x && pos.x + size.x >= this.pos.x && pos.y <= this.pos.y + stageSize.y && pos.y + size.y >= this.pos.y
-	}
-	/**
-	 * @param {number} x
-	 * @param {number} y
-	 */
-	move(x, y) {
-		this.pos.x += x
-		this.pos.y += y
-		this.update()
 	}
 	static createTextarea() {
 		var t = document.createElementNS("http://www.w3.org/1999/xhtml", "textarea")
@@ -284,14 +272,10 @@ const objectTypes = (() => {
 })();
 
 class Viewport {
-	/**
-	 * @param {() => void} updateCallback
-	 */
-	constructor(updateCallback) {
+	constructor() {
 		this.x = 0;
 		this.y = 0;
 		this.zoom = 1;
-		this.updateAllObjects = updateCallback
 	}
 	/**
 	 * @param {number} x
@@ -319,14 +303,42 @@ class Viewport {
 		this.zoom *= amount
 	}
 }
+class Renderer {
+	/** @param {Whiteboard} whiteboard */
+	constructor(whiteboard) {
+		this.whiteboard = whiteboard;
+		this.loopID = 0;
+	}
+	render() {
+		mainCanvasCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height)
+		mainCanvasCtx.lineCap = "round"
+		mainCanvasCtx.lineJoin = "round"
+		for (var i = 0; i < this.whiteboard.objects.length; i++) {
+			var obj = this.whiteboard.objects[i];
+			obj.draw(this.whiteboard.viewport, mainCanvasCtx, this.whiteboard.selection.includes(obj))
+		}
+		// Render touches
+		for (var i = 0; i < this.whiteboard.touchHandler.touches.length; i++) {
+			var touch = this.whiteboard.touchHandler.touches[i];
+			touch.mode.render(this.whiteboard.viewport, mainCanvasCtx)
+		}
+	}
+	async renderLoop() {
+		while (true) {
+			await new Promise((resolve) => requestAnimationFrame(resolve));
+			this.render()
+		}
+	}
+}
 class Whiteboard {
 	constructor() {
-		this.viewport = new Viewport(this.updateAllObjects.bind(this))
+		this.viewport = new Viewport()
 		/** @type {SceneObject[]} */
 		this.objects = []
 		/** @type {SceneObject[]} */
 		this.selection = []
 		this.connection = new Connection(this)
+		this.renderer = new Renderer(this)
 		// Undo stack objects
 		this.shiftKeyDown = false
 		/** @type {UndoStackItem[]} */
@@ -344,7 +356,6 @@ class Whiteboard {
 			if (e.key == "Escape") {
 				// Remove selection
 				this.selection = [];
-				this.updateAllObjects();
 				this.updateSelectionWindow();
 			}
 			if (e.key == "Backspace" || e.key == "Delete") {
@@ -367,15 +378,19 @@ class Whiteboard {
 		}).bind(this))
 		window.addEventListener("Custom-Switch-Tools", (() => {
 			this.selection = []
-			this.updateAllObjects()
 			this.updateSelectionWindow()
 		}).bind(this))
 		this.updateUndoButtons()
 	}
-	updateAllObjects() {
-		for (var i = 0; i < this.objects.length; i++) {
-			this.objects[i].update()
-		}
+	/** @param {SceneObject} obj */
+	add(obj) {
+		this.objects.push(obj)
+		obj.add()
+	}
+	/** @param {SceneObject} obj */
+	remove(obj) {
+		this.objects.splice(this.objects.indexOf(obj), 1)
+		obj.remove()
 	}
 	/** @param {number} objectID */
 	findObject(objectID) {
@@ -399,7 +414,7 @@ class Whiteboard {
 	eraseAtPoint(pos) {
 		var o = [...this.objects]
 		for (var i = 0; i < o.length; i++) {
-			if (o[i].collidepoint(pos)) {
+			if (o[i].collidepoint(this.viewport, pos)) {
 				this.doAction(new USIEraseObjects(this, [{
 					typeID: o[i].getTypeID(), objectID: o[i].objectID, data: o[i].data
 				}]))
@@ -495,7 +510,8 @@ class Connection {
 			var obj = this.whiteboard.findObjectSafe(message.objectID)
 			// Create new object?
 			if (obj == undefined) {
-				obj = SceneObject.createFromDataAndID(this.whiteboard, message.typeID, message.data, message.objectID)
+				obj = SceneObject.createFromDataAndID(message.typeID, message.data, message.objectID)
+				this.whiteboard.add(obj)
 			}
 			// Verify object!
 			obj.verify()
@@ -506,7 +522,7 @@ class Connection {
 			if (obj == undefined) {
 				console.error("Can't remove nonexistent object with ID:", message.objectID)
 			} else {
-				obj.remove();
+				this.whiteboard.remove(obj);
 			}
 		} else {
 			console.error("Got mysterious message from server:", message)
@@ -681,6 +697,11 @@ class TouchMode {
 		this.touch = touch
 	}
 	/**
+	 * @param {Viewport} viewport
+	 * @param {CanvasRenderingContext2D} canvas
+	 */
+	render(viewport, canvas) {}
+	/**
 	 * @param {number} previousX
 	 * @param {number} previousY
 	 * @param {number} newX
@@ -711,14 +732,26 @@ class DrawTouchMode extends TouchMode {
 		super(touch)
 		/** @type {{ x: number, y: number }[]} */
 		this.points = [this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y)]
-		/** @type {SVGPathElement} */
-		this.elm = document.createElementNS("http://www.w3.org/2000/svg", "path")
-		this.elm.setAttribute("fill", "none")
-		this.elm.setAttribute("stroke", "red")
-		this.elm.setAttribute("stroke-width", "5")
-		theSVG.appendChild(this.elm)
 		this.color = color
 		this.drawing_mode = drawing_mode
+	}
+	/**
+	 * @param {Viewport} viewport
+	 * @param {CanvasRenderingContext2D} canvas
+	 */
+	render(viewport, canvas) {
+		canvas.fillStyle = "none"
+		canvas.strokeStyle = "red"
+		canvas.lineWidth = 5
+		// Get lines from drawing mode
+		var points = this.drawing_mode([...this.points])
+		// Draw lines
+		canvas.beginPath()
+		let drawPos = viewport.getScreenPosFromStagePos(points[0].x, points[0].y); canvas.moveTo(drawPos.x, drawPos.y);
+		for (var i = 1; i < points.length; i++) {
+			let drawPos = viewport.getScreenPosFromStagePos(points[i].x, points[i].y); canvas.lineTo(drawPos.x, drawPos.y);
+		}
+		canvas.stroke()
 	}
 	/**
 	 * @param {number} previousX
@@ -729,19 +762,12 @@ class DrawTouchMode extends TouchMode {
 	onMove(previousX, previousY, newX, newY) {
 		const _viewport = this.touch.whiteboard.viewport;
 		this.points.push(_viewport.getStagePosFromScreenPos(this.touch.x, this.touch.y))
-		// Find points to display
-		var stagePoints = this.drawing_mode(this.points)
-		var screenPoints = stagePoints.map((v) => _viewport.getScreenPosFromStagePos(v.x, v.y))
-		this.elm.setAttribute("d", pointsToPath(screenPoints))
-		// this.elm.setAttribute("stroke-width", (5 * viewPos.zoom).toString())
 	}
 	/**
 	 * @param {number} previousX
 	 * @param {number} previousY
 	 */
 	onEnd(previousX, previousY) {
-		// Remove current display elm
-		this.elm.remove()
 		// Add drawing to screen
 		if (this.points.length > 6) {
 			this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
@@ -758,9 +784,7 @@ class DrawTouchMode extends TouchMode {
 	 * @param {number} previousX
 	 * @param {number} previousY
 	 */
-	onCancel(previousX, previousY) {
-		this.elm.remove()
-	}
+	onCancel(previousX, previousY) {}
 	toString() {
 		return `DrawTouchMode { ${this.points.length} points }`
 	}
@@ -835,8 +859,6 @@ class PanTouchMode extends TouchMode {
 		viewport.x += newPos.x - previousPos.x
 		viewport.y += newPos.y - previousPos.y
 		viewport.zoomView(newPos, zoom)
-		// Update
-		viewport.updateAllObjects()
 	}
 	toString() {
 		return `PanTouchMode {}`
@@ -852,10 +874,19 @@ class SelectTouchMode extends TouchMode {
 		this.startPos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y)
 		/** @type {{ x: number, y: number }} */
 		this.endPos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y)
-		/** @type {SVGRectElement} */
-		this.elm = document.createElementNS("http://www.w3.org/2000/svg", "rect")
-		this.elm.setAttribute("fill", "#AAF8")
-		theSVG.appendChild(this.elm)
+	}
+	/**
+	 * @param {Viewport} viewport
+	 * @param {CanvasRenderingContext2D} canvas
+	 */
+	render(viewport, canvas) {
+		canvas.fillStyle = "#AAF8"
+		canvas.strokeStyle = "none"
+		// Draw rectangle
+		var screenStartPos = viewport.getScreenPosFromStagePos(this.startPos.x, this.startPos.y);
+		var screenEndPos = viewport.getScreenPosFromStagePos(this.endPos.x, this.endPos.y);
+		var actualSize = { x: screenEndPos.x - screenStartPos.x, y: screenEndPos.y - screenStartPos.y }
+		canvas.fillRect(screenStartPos.x, screenStartPos.y, actualSize.x, actualSize.y)
 	}
 	/**
 	 * @param {number} previousX
@@ -869,30 +900,28 @@ class SelectTouchMode extends TouchMode {
 		var startStagePos = this.touch.whiteboard.viewport.getScreenPosFromStagePos(this.startPos.x, this.startPos.y)
 		var endStagePos = this.touch.whiteboard.viewport.getScreenPosFromStagePos(this.endPos.x, this.endPos.y)
 		// Apply rect width and height
-		var width = endStagePos.x - startStagePos.x
-		if (width >= 0) {
-			this.elm.setAttribute("x", startStagePos.x.toString())
-			this.elm.setAttribute("width", width.toString())
-		} else {
-			this.elm.setAttribute("x", (startStagePos.x + width).toString())
-			this.elm.setAttribute("width", (-width).toString())
-		}
-		var height = endStagePos.y - startStagePos.y
-		if (height >= 0) {
-			this.elm.setAttribute("y", startStagePos.y.toString())
-			this.elm.setAttribute("height", height.toString())
-		} else {
-			this.elm.setAttribute("y", (startStagePos.y + height).toString())
-			this.elm.setAttribute("height", (-height).toString())
-		}
+		// var width = endStagePos.x - startStagePos.x
+		// if (width >= 0) {
+		// 	this.elm.setAttribute("x", startStagePos.x.toString())
+		// 	this.elm.setAttribute("width", width.toString())
+		// } else {
+		// 	this.elm.setAttribute("x", (startStagePos.x + width).toString())
+		// 	this.elm.setAttribute("width", (-width).toString())
+		// }
+		// var height = endStagePos.y - startStagePos.y
+		// if (height >= 0) {
+		// 	this.elm.setAttribute("y", startStagePos.y.toString())
+		// 	this.elm.setAttribute("height", height.toString())
+		// } else {
+		// 	this.elm.setAttribute("y", (startStagePos.y + height).toString())
+		// 	this.elm.setAttribute("height", (-height).toString())
+		// }
 	}
 	/**
 	 * @param {number} previousX
 	 * @param {number} previousY
 	 */
 	onEnd(previousX, previousY) {
-		// Remove current display elm
-		this.elm.remove()
 		// Normalize the rectangle
 		var x = this.startPos.x
 		var y = this.startPos.y
@@ -912,19 +941,11 @@ class SelectTouchMode extends TouchMode {
 		if (!this.touch.whiteboard.shiftKeyDown) this.touch.whiteboard.selection = []
 		for (var i = 0; i < this.touch.whiteboard.objects.length; i++) {
 			if (this.touch.whiteboard.selection.includes(this.touch.whiteboard.objects[i])) continue;
-			if (this.touch.whiteboard.objects[i].colliderect(rectPos, rectSize)) {
+			if (this.touch.whiteboard.objects[i].colliderect(this.touch.whiteboard.viewport, rectPos, rectSize)) {
 				this.touch.whiteboard.selection.push(this.touch.whiteboard.objects[i])
 			}
 		}
-		this.touch.whiteboard.updateAllObjects()
 		this.touch.whiteboard.updateSelectionWindow()
-	}
-	/**
-	 * @param {number} previousX
-	 * @param {number} previousY
-	 */
-	onCancel(previousX, previousY) {
-		this.elm.remove()
 	}
 	toString() {
 		return `SelectTouchMode { start: ${this.startPos.x}, ${this.startPos.y}, end: ${this.endPos.x}, ${this.endPos.y} }`
@@ -1019,8 +1040,12 @@ class TouchHandler {
 	}
 	addEventListeners() {
 		const _this = this;
+		// Get main element
+		var mainContainer = document.querySelector(".mainContainer")
+		if (mainContainer == null) throw new Error("Main container is missing!")
+		if (! (mainContainer instanceof HTMLElement)) throw new Error("Main container is not HTML!")
 		// Mouse Listeners
-		theSVG.parentElement?.addEventListener("mousedown", (e) => {
+		mainContainer.addEventListener("mousedown", (e) => {
 			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
 			if (e.buttons == 4 || e.buttons == 5) {
 				_this.mousecancel(0)
@@ -1030,42 +1055,41 @@ class TouchHandler {
 				this.touches.push(new TrackedTouch(_this.whiteboard, e.clientX, e.clientY, 0, _this.touches, false));
 			}
 		});
-		theSVG.parentElement?.addEventListener("mousemove", (e) => {
+		mainContainer.addEventListener("mousemove", (e) => {
 			_this.mousemove(0, {
 				x: e.clientX,
 				y: e.clientY
 			});
 		});
-		theSVG.parentElement?.addEventListener("mouseup", (e) => {
+		mainContainer.addEventListener("mouseup", (e) => {
 			_this.mouseup(0);
 		});
-		theSVG.parentElement?.addEventListener("wheel", (e) => {
+		mainContainer.addEventListener("wheel", (e) => {
 			_this.whiteboard.viewport.zoomView({
 				x: e.clientX,
 				y: e.clientY
 			}, Math.pow(2, e.deltaY / -500));
-			_this.whiteboard.updateAllObjects();
 		});
 		// Touch Listeners
-		theSVG.parentElement?.addEventListener("touchstart", (e) => {
+		mainContainer.addEventListener("touchstart", (e) => {
 			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
 			e.preventDefault();
 			_this.handleTouches(e.touches)
 			return false
 		}, false);
-		theSVG.parentElement?.addEventListener("touchmove", (e) => {
+		mainContainer.addEventListener("touchmove", (e) => {
 			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
 			e.preventDefault();
 			_this.handleTouches(e.touches)
 			return false
 		}, false);
-		theSVG.parentElement?.addEventListener("touchcancel", (e) => {
+		mainContainer.addEventListener("touchcancel", (e) => {
 			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
 			e.preventDefault();
 			_this.handleTouches(e.touches)
 			return false
 		}, false);
-		theSVG.parentElement?.addEventListener("touchend", (e) => {
+		mainContainer.addEventListener("touchend", (e) => {
 			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
 			e.preventDefault();
 			_this.handleTouches(e.touches)
@@ -1101,7 +1125,7 @@ class USICreateObjects extends UndoStackItem {
 	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
 	do() {
 		for (var o of this.objects) {
-			SceneObject.createFromDataAndID(this.whiteboard, o.typeID, o.data, o.objectID);
+			this.whiteboard.add(SceneObject.createFromDataAndID(o.typeID, o.data, o.objectID));
 			this.whiteboard.connection.createObject(o.typeID, o.objectID, o.data);
 		}
 	}
@@ -1125,4 +1149,4 @@ class USIEraseObjects extends UndoStackItem {
 
 
 var whiteboard = new Whiteboard()
-
+whiteboard.renderer.renderLoop()

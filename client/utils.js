@@ -82,9 +82,15 @@ const distanceBetweenPointAndLineSegment = (() => {
 	return distToSegment
 })();
 
-var theSVG = document.createElementNS("http://www.w3.org/2000/svg", "svg")
-document.querySelector(".mainContainer")?.appendChild(theSVG)
-theSVG.id = "theSVG"
+var mainCanvas = document.createElement("canvas")
+document.querySelector(".mainContainer")?.appendChild(mainCanvas)
+mainCanvas.id = "mainCanvas"
+
+var mainCanvasCtx = (() => {
+	var ctx = mainCanvas.getContext('2d')
+	if (ctx == null) throw new Error("Canvas context not found")
+	return ctx;
+})();
 
 /**
  * @param {{ x: number, y: number }[]} points
