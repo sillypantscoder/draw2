@@ -225,6 +225,29 @@ class Draw2Server(HTTPServer):
 						}))
 				# Save whiteboard
 				whiteboard.saveObjectList()
+		elif messageData["action"] == "edit_object":
+			# === Edit object ===
+			o = None
+			for checkObj in whiteboard.objects:
+				if checkObj["objectID"] == messageData["objectID"]:
+					o = checkObj
+			if o == None: c.sendMessage(json.dumps({
+				"type": "error",
+				"data": f"Cannot edit object with ID {messageData['objectID']} as it does not exist"
+			}))
+			else:
+				# Update object data
+				o["data"] = messageData["newData"]
+				# Inform other clients
+				for otherClient in self.ws_server.clients:
+					if self.clientWhiteboards[otherClient.id] == whiteboard:
+						otherClient.sendMessage(json.dumps({
+							"type": "edit_object",
+							"objectID": messageData["objectID"],
+							"newData": messageData["newData"]
+						}))
+				# Save whiteboard
+				whiteboard.saveObjectList()
 	def on_ws_disconnect(self, c: wslib.Client):
 		del self.clientWhiteboards[c.id]
 
