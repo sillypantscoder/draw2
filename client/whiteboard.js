@@ -55,9 +55,6 @@ class SceneObject {
 	remove() {
 		this.whiteboard.objects.splice(this.whiteboard.objects.indexOf(this), 1)
 	}
-	createData() {
-		return {}
-	}
 	/**
 	 * Creates an object given its type ID, object ID, and data. Adds the object to the screen.
 	 * @param {Whiteboard} whiteboard
@@ -92,6 +89,9 @@ class SceneObject {
 	 */
 	move(x, y) {
 	}
+	/** @returns {string} */
+	// @ts-ignore
+	getTypeID() { return this.constructor.typeID; }
 }
 class DrawingObject extends SceneObject {
 	static typeID = "drawing"
@@ -135,9 +135,6 @@ class DrawingObject extends SceneObject {
 	remove() {
 		super.remove()
 		this.elm.remove()
-	}
-	createData() {
-		return { type: "drawing", d: this.path, color: this.color }
 	}
 	/** @param {{ x: number, y: number }} pos */
 	collidepoint(pos) {
@@ -264,9 +261,6 @@ class TextObject extends SceneObject {
 		this.pos.y += y
 		this.update()
 	}
-	createData() {
-		return { type: "text", text: this.elm.value, pos: this.pos }
-	}
 	static createTextarea() {
 		var t = document.createElementNS("http://www.w3.org/1999/xhtml", "textarea")
 		if (! (t instanceof HTMLTextAreaElement)) {
@@ -355,10 +349,11 @@ class Whiteboard {
 			}
 			if (e.key == "Backspace" || e.key == "Delete") {
 				// Delete selection
-				throw new Error("Can't delete multiple objects! (Yet!)")
-				// this.selection.forEach((v) => v.removeAndSendErase());
-				// this.selection = [];
-				// this.updateSelectionWindow();
+				this.doAction(new USIEraseObjects(this, this.selection.map((v) => ({
+					typeID: v.getTypeID(), objectID: v.objectID, data: v.data
+				}))));
+				this.selection = [];
+				this.updateSelectionWindow();
 			}
 			if (e.ctrlKey) {
 				if (e.key == "z") this.undo()
@@ -405,8 +400,9 @@ class Whiteboard {
 		var o = [...this.objects]
 		for (var i = 0; i < o.length; i++) {
 			if (o[i].collidepoint(pos)) {
-				// @ts-ignore
-				this.doAction(new USIEraseObject(this, o[i].constructor.typeID, o[i].objectID, o[i].data))
+				this.doAction(new USIEraseObjects(this, [{
+					typeID: o[i].getTypeID(), objectID: o[i].objectID, data: o[i].data
+				}]))
 			}
 		}
 	}
@@ -748,10 +744,14 @@ class DrawTouchMode extends TouchMode {
 		this.elm.remove()
 		// Add drawing to screen
 		if (this.points.length > 6) {
-			this.touch.whiteboard.doAction(new USICreateObject(this.touch.whiteboard, "drawing", SceneObject.generateObjectID(), {
-				"d": this.drawing_mode(this.points),
-				"color": this.color
-			}))
+			this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
+				typeID: "drawing",
+				objectID: SceneObject.generateObjectID(),
+				data: {
+					"d": this.drawing_mode(this.points),
+					"color": this.color
+				}
+			}]))
 		}
 	}
 	/**
@@ -785,10 +785,14 @@ class TextTouchMode extends TouchMode {
 	 * @param {number} previousY
 	 */
 	onEnd(previousX, previousY) {
-		this.touch.whiteboard.doAction(new USICreateObject(this.touch.whiteboard, "text", SceneObject.generateObjectID(), {
-			"text": "Enter text here",
-			"pos": this.touch.whiteboard.viewport.getStagePosFromScreenPos(previousX, previousY)
-		}))
+		this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
+			typeID: "text",
+			objectID: SceneObject.generateObjectID(),
+			data: {
+				"text": "Enter text here",
+				"pos": this.touch.whiteboard.viewport.getStagePosFromScreenPos(previousX, previousY)
+			}
+		}]))
 	}
 	/**
 	 * @param {number} previousX
@@ -1084,30 +1088,38 @@ class DummyUndoStackItem extends UndoStackItem {
 	 * @param {boolean} inverted
 	 */
 	constructor(whiteboard, n, inverted) { super(whiteboard); this.n = n; this.inverted = inverted; }
-	do() { console.log(this.inverted ? "redo" : "undo", this.n) }
+	do() {
+		console.log(this.inverted ? "redo" : "undo", this.n)
+	}
 	invert() { return new DummyUndoStackItem(this.whiteboard, this.n, !this.inverted) }
 }
-class USICreateObject extends UndoStackItem {
+class USICreateObjects extends UndoStackItem {
 	/**
 	 * @param {Whiteboard} whiteboard
-	 * @param {string} typeID
-	 * @param {number} objectID
-	 * @param {Object} data
+	 * @param {{ typeID: string, objectID: number, data: Object }[]} objects
 	 */
-	constructor(whiteboard, typeID, objectID, data) { super(whiteboard); this.typeID = typeID; this.objectID = objectID; this.data = data; }
-	do() { SceneObject.createFromDataAndID(this.whiteboard, this.typeID, this.data, this.objectID); this.whiteboard.connection.createObject(this.typeID, this.objectID, this.data); }
-	invert() { return new USIEraseObject(this.whiteboard, this.typeID, this.objectID, this.data) }
+	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
+	do() {
+		for (var o of this.objects) {
+			SceneObject.createFromDataAndID(this.whiteboard, o.typeID, o.data, o.objectID);
+			this.whiteboard.connection.createObject(o.typeID, o.objectID, o.data);
+		}
+	}
+	invert() { return new USIEraseObjects(this.whiteboard, [...this.objects]) }
 }
-class USIEraseObject extends UndoStackItem {
+class USIEraseObjects extends UndoStackItem {
 	/**
 	 * @param {Whiteboard} whiteboard
-	 * @param {string} typeID
-	 * @param {number} objectID
-	 * @param {Object} data
+	 * @param {{ typeID: string, objectID: number, data: Object }[]} objects
 	 */
-	constructor(whiteboard, typeID, objectID, data) { super(whiteboard); this.typeID = typeID; this.objectID = objectID; this.data = data; }
-	do() { this.whiteboard.findObject(this.objectID).unverify(); this.whiteboard.connection.removeObject(this.objectID); }
-	invert() { return new USICreateObject(this.whiteboard, this.typeID, this.objectID, this.data) }
+	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
+	do() {
+		for (var o of this.objects) {
+			this.whiteboard.findObject(o.objectID).unverify();
+			this.whiteboard.connection.removeObject(o.objectID);
+		}
+	}
+	invert() { return new USICreateObjects(this.whiteboard, [...this.objects]) }
 }
 
 
