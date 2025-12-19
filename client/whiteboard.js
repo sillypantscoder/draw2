@@ -39,6 +39,23 @@ function getCurrentMode() {
 	mainCanvas.height = window.innerHeight
 })();
 
+/** @param {{ x: number, y: number, w: number, h: number }[]} rects */
+function getBoundingBox(rects) {
+	var leftPos = Infinity;
+	var topPos = Infinity;
+	var rightPos = -Infinity;
+	var bottomPos = -Infinity;
+	for (var rect of rects) {
+		if (rect.x < leftPos) leftPos = rect.x
+		if (rect.y < topPos) topPos = rect.y
+		if (rect.x + rect.w > rightPos) rightPos = rect.x + rect.w
+		if (rect.y + rect.h > bottomPos) bottomPos = rect.y + rect.h
+	}
+	var width = rightPos - leftPos;
+	var height = bottomPos - topPos;
+	return { x: leftPos, y: topPos, w: width, h: height }
+}
+
 class SceneObject {
 	static typeID = "[ERROR]"
 	/**
@@ -321,6 +338,16 @@ class TextObject extends SceneObject {
 		// stagePos = this.pos
 		return pos.x <= this.pos.x + stageSize.x && pos.x + size.x >= this.pos.x && pos.y <= this.pos.y + stageSize.y && pos.y + size.y >= this.pos.y
 	}
+	/**
+	 * @param {number} dx
+	 * @param {number} dy
+	 */
+	linearMove(dx, dy) {
+		this.pos.x += dx;
+		this.pos.y += dy;
+		this.data.pos = this.pos
+		super.linearMove(dx, dy);
+	}
 	static createTextarea() {
 		var t = document.createElementNS("http://www.w3.org/1999/xhtml", "textarea")
 		if (! (t instanceof HTMLTextAreaElement)) {
@@ -365,27 +392,14 @@ class Handle {
 class LinearMovementHandle extends Handle {
 	/**
 	 * @param {Viewport} viewport
-	 * @param {SceneObject[]} sourceObjects
+	 * @param {{ objects: SceneObject[], boundingBox: { x: number, y: number, w: number, h: number }, handles: Handle[] }} selection
 	 */
-	constructor(viewport, sourceObjects) {
+	constructor(viewport, selection) {
 		super(viewport)
-		this.sources = sourceObjects
+		this.selection = selection
 		// Find handle position
-		var leftPos = Infinity;
-		var topPos = Infinity;
-		var rightPos = -Infinity;
-		var bottomPos = -Infinity;
-		for (var o of this.sources) {
-			var rect = o.getBoundingRect(this.viewport)
-			if (rect.x < leftPos) leftPos = rect.x
-			if (rect.y < topPos) topPos = rect.y
-			if (rect.x + rect.w > rightPos) rightPos = rect.x + rect.w
-			if (rect.y + rect.h > bottomPos) bottomPos = rect.y + rect.h
-		}
-		// if (Number.isFinite(leftPos)) this.pos.x = leftPos;
-		// if (Number.isFinite(topPos)) this.pos.y = topPos;
-		if (Number.isFinite(leftPos) && Number.isFinite(rightPos)) this.pos.x = (leftPos + rightPos) / 2;
-		if (Number.isFinite(topPos) && Number.isFinite(bottomPos)) this.pos.y = (topPos + bottomPos) / 2;
+		this.pos.x = this.selection.boundingBox.x;
+		this.pos.y = this.selection.boundingBox.y;
 	}
 	/**
 	 * @param {number} x
@@ -396,15 +410,18 @@ class LinearMovementHandle extends Handle {
 		var dy = y - this.pos.y
 		this.pos.x = x
 		this.pos.y = y
+		// Move rect
+		this.selection.boundingBox.x += dx;
+		this.selection.boundingBox.y += dy;
 		// Move objects
-		for (var o of this.sources) {
+		for (var o of this.selection.objects) {
 			o.linearMove(dx, dy)
 		}
 	}
 	finishMovement() {
 		super.finishMovement()
 		// Send edits
-		for (var o of this.sources) {
+		for (var o of this.selection.objects) {
 			o.editedTime = Date.now()
 		}
 	}
@@ -454,21 +471,46 @@ class Renderer {
 		mainCanvasCtx.lineJoin = "round"
 		for (var i = 0; i < this.whiteboard.objects.length; i++) {
 			var obj = this.whiteboard.objects[i];
-			obj.draw(this.whiteboard.viewport, mainCanvasCtx, this.whiteboard.selection.includes(obj))
+			obj.draw(this.whiteboard.viewport, mainCanvasCtx, this.whiteboard.selection?.objects.includes(obj) ?? false)
 		}
-		// Render handles
-		for (var handle of this.whiteboard.selectionHandles) {
-			var screenPos = this.whiteboard.viewport.getScreenPosFromStagePos(handle.pos.x, handle.pos.y)
-			// Format circle
-			mainCanvasCtx.fillStyle = handle.isDragging ? "#008" : "white"
-			mainCanvasCtx.strokeStyle = "#008"
-			mainCanvasCtx.lineWidth = 3
-			mainCanvasCtx.globalAlpha = 1
-			// Draw circle
-			mainCanvasCtx.beginPath();
-			mainCanvasCtx.arc(screenPos.x, screenPos.y, 10, 0, Math.PI * 2);
-			mainCanvasCtx.fill();
-			mainCanvasCtx.stroke();
+		// Render selection
+		if (this.whiteboard.selection != null) {
+			// Render original border
+			{
+				let borderPos = this.whiteboard.viewport.getScreenPosFromStagePos(this.whiteboard.selection.originalBoundingBox.x, this.whiteboard.selection.originalBoundingBox.y);
+				let borderWidth = this.whiteboard.selection.originalBoundingBox.w * this.whiteboard.viewport.zoom;
+				let borderHeight = this.whiteboard.selection.originalBoundingBox.h * this.whiteboard.viewport.zoom;
+				// Format
+				mainCanvasCtx.strokeStyle = "black"
+				mainCanvasCtx.lineWidth = 1
+				mainCanvasCtx.globalAlpha = 0.5
+				// Draw
+				mainCanvasCtx.strokeRect(borderPos.x, borderPos.y, borderWidth, borderHeight)
+			}
+			// Render border
+			{
+				let borderPos = this.whiteboard.viewport.getScreenPosFromStagePos(this.whiteboard.selection.boundingBox.x, this.whiteboard.selection.boundingBox.y);
+				let borderWidth = this.whiteboard.selection.boundingBox.w * this.whiteboard.viewport.zoom;
+				let borderHeight = this.whiteboard.selection.boundingBox.h * this.whiteboard.viewport.zoom;
+				// Format
+				mainCanvasCtx.strokeStyle = "#008"
+				mainCanvasCtx.lineWidth = 1.5
+				mainCanvasCtx.globalAlpha = 1
+				// Draw
+				mainCanvasCtx.strokeRect(borderPos.x, borderPos.y, borderWidth, borderHeight)
+			}
+			// Render handles
+			for (var handle of this.whiteboard.selection.handles) {
+				var screenPos = this.whiteboard.viewport.getScreenPosFromStagePos(handle.pos.x, handle.pos.y)
+				// Format circle
+				mainCanvasCtx.fillStyle = handle.isDragging ? "#008" : "white"
+				mainCanvasCtx.lineWidth = 3
+				// Draw circle
+				mainCanvasCtx.beginPath();
+				mainCanvasCtx.arc(screenPos.x, screenPos.y, 10, 0, Math.PI * 2);
+				mainCanvasCtx.fill();
+				mainCanvasCtx.stroke();
+			}
 		}
 		// Render touches
 		for (var i = 0; i < this.whiteboard.touchHandler.touches.length; i++) {
@@ -588,10 +630,8 @@ class Whiteboard {
 		this.viewport = new Viewport()
 		/** @type {SceneObject[]} */
 		this.objects = []
-		/** @type {SceneObject[]} */
-		this.selection = []
-		/** @type {Handle[]} */
-		this.selectionHandles = []
+		/** @type {{ objects: SceneObject[], originalBoundingBox: { x: number, y: number, w: number, h: number }, boundingBox: { x: number, y: number, w: number, h: number }, handles: Handle[] } | null} */
+		this.selection = null
 		this.connection = new Connection(this)
 		this.renderer = new Renderer(this)
 		// Undo stack objects
@@ -610,15 +650,17 @@ class Whiteboard {
 			if (e.key == "Shift") this.shiftKeyDown = true
 			if (e.key == "Escape") {
 				// Remove selection
-				this.selection = [];
+				this.selection = null;
 				this.updateSelection();
 			}
 			if (e.key == "Backspace" || e.key == "Delete") {
 				// Delete selection
-				this.doAction(new USIEraseObjects(this, this.selection.map((v) => ({
-					typeID: v.getTypeID(), objectID: v.objectID, data: v.data
-				}))));
-				this.selection = [];
+				if (this.selection != null) {
+					this.doAction(new USIEraseObjects(this, this.selection.objects.map((v) => ({
+						typeID: v.getTypeID(), objectID: v.objectID, data: v.data
+					}))));
+				}
+				this.selection = null;
 				this.updateSelection();
 			}
 			if (e.ctrlKey) {
@@ -632,7 +674,7 @@ class Whiteboard {
 			if (e.key == "Shift") this.shiftKeyDown = false
 		}).bind(this))
 		window.addEventListener("Custom-Switch-Tools", (() => {
-			this.selection = []
+			this.selection = null
 			this.updateSelection()
 		}).bind(this))
 		this.updateUndoButtons()
@@ -677,12 +719,17 @@ class Whiteboard {
 		}
 	}
 	updateSelection() {
-		// update handles
-		this.selectionHandles = this.getAllHandles()
+		const _viewport = this.viewport;
+		// update handles / bounding box
+		if (this.selection != null) {
+			this.selection.boundingBox = getBoundingBox(this.selection.objects.map((v) => v.getBoundingRect(_viewport)));
+			this.selection.originalBoundingBox = { x: this.selection.boundingBox.x, y: this.selection.boundingBox.y, w: this.selection.boundingBox.w, h: this.selection.boundingBox.h };
+			this.selection.handles = this.getAllHandles()
+		}
 		// update window
 		var window = document.querySelector(".selection-window")
 		if (window == null) throw new Error(".selection-window is missing")
-		if (this.selection.length == 0) {
+		if (this.selection == null) {
 			window.classList.remove("active")
 		} else {
 			window.classList.add("active")
@@ -690,15 +737,15 @@ class Whiteboard {
 		// update number in window
 		var number = document.querySelector("#selection-number")
 		if (number == null) throw new Error("#selection-number is missing")
-		number.textContent = this.selection.length.toString();
+		number.textContent = this.selection?.objects.length.toString() ?? "0";
 		// update s in number in window
 		var s = document.querySelector("#selection-s")
 		if (s == null) throw new Error("#selection-s is missing")
-		if (this.selection.length == 1) s.classList.add("hidden");
+		if (this.selection?.objects.length == 1) s.classList.add("hidden");
 		else s.classList.remove("hidden");
 	}
 	getAllHandles() {
-		if (this.selection.length == 0) return [];
+		if (this.selection == null) return [];
 		return [new LinearMovementHandle(this.viewport, this.selection)]
 	}
 	/**
@@ -867,11 +914,13 @@ class TrackedTouch {
 			return new PanTouchMode(this)
 		}
 		// Check if we are dragging on a handle.
-		for (var handle of this.whiteboard.selectionHandles) {
-			if (handle.isDragging) continue;
-			var handleScreenPos = this.whiteboard.viewport.getScreenPosFromStagePos(handle.pos.x, handle.pos.y)
-			if (dist(this, handleScreenPos) < 60) {
-				return new HandleDraggingTouchMode(this, handle);
+		if (this.whiteboard.selection != null) {
+			for (var handle of this.whiteboard.selection.handles) {
+				if (handle.isDragging) continue;
+				var handleScreenPos = this.whiteboard.viewport.getScreenPosFromStagePos(handle.pos.x, handle.pos.y)
+				if (dist(this, handleScreenPos) < 60) {
+					return new HandleDraggingTouchMode(this, handle);
+				}
 			}
 		}
 		// Then, find the selected mode in the toolbar.
@@ -1107,26 +1156,6 @@ class SelectTouchMode extends TouchMode {
 	 */
 	onMove(previousX, previousY, newX, newY) {
 		this.endPos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(newX, newY)
-		// Get screen locations
-		var startStagePos = this.touch.whiteboard.viewport.getScreenPosFromStagePos(this.startPos.x, this.startPos.y)
-		var endStagePos = this.touch.whiteboard.viewport.getScreenPosFromStagePos(this.endPos.x, this.endPos.y)
-		// Apply rect width and height
-		// var width = endStagePos.x - startStagePos.x
-		// if (width >= 0) {
-		// 	this.elm.setAttribute("x", startStagePos.x.toString())
-		// 	this.elm.setAttribute("width", width.toString())
-		// } else {
-		// 	this.elm.setAttribute("x", (startStagePos.x + width).toString())
-		// 	this.elm.setAttribute("width", (-width).toString())
-		// }
-		// var height = endStagePos.y - startStagePos.y
-		// if (height >= 0) {
-		// 	this.elm.setAttribute("y", startStagePos.y.toString())
-		// 	this.elm.setAttribute("height", height.toString())
-		// } else {
-		// 	this.elm.setAttribute("y", (startStagePos.y + height).toString())
-		// 	this.elm.setAttribute("height", (-height).toString())
-		// }
 	}
 	/**
 	 * @param {number} previousX
@@ -1148,15 +1177,23 @@ class SelectTouchMode extends TouchMode {
 		}
 		var rectPos = { x, y }
 		var rectSize = { x: width, y: height }
-		// Select items!
-		if (!this.touch.whiteboard.shiftKeyDown) this.touch.whiteboard.selection = []
+		// === Select items! ===
+		var selectedItems = []
+		// Keep previously selected items if shift key is pressed
+		if (this.touch.whiteboard.shiftKeyDown && this.touch.whiteboard.selection != null) selectedItems.push(...this.touch.whiteboard.selection.objects)
+		// Check all objects...
 		for (var i = 0; i < this.touch.whiteboard.objects.length; i++) {
-			if (this.touch.whiteboard.selection.includes(this.touch.whiteboard.objects[i])) continue;
+			// ...except already selected ones
+			if (selectedItems.includes(this.touch.whiteboard.objects[i])) continue;
+			// Check if the object collides with the selection rectangle
 			if (this.touch.whiteboard.objects[i].colliderect(this.touch.whiteboard.viewport, rectPos, rectSize)) {
-				this.touch.whiteboard.selection.push(this.touch.whiteboard.objects[i])
+				selectedItems.push(this.touch.whiteboard.objects[i])
 			}
 		}
-		this.touch.whiteboard.updateSelection()
+		// Update whiteboard selection value
+		if (selectedItems.length == 0) this.touch.whiteboard.selection = null;
+		else this.touch.whiteboard.selection = { objects: selectedItems, originalBoundingBox: { x: 0, y: 0, w: 0, h: 0 }, boundingBox: { x: 0, y: 0, w: 0, h: 0 }, handles: [] }
+		this.touch.whiteboard.updateSelection() // `originalBoundingBox`, `boundingBox` and `handles` will be set here
 	}
 	toString() {
 		return `SelectTouchMode { start: ${this.startPos.x}, ${this.startPos.y}, end: ${this.endPos.x}, ${this.endPos.y} }`
@@ -1209,6 +1246,7 @@ class HandleDraggingTouchMode extends TouchMode {
 	 */
 	onEnd(previousX, previousY) {
 		this.handle.finishMovement()
+		this.touch.whiteboard.updateSelection()
 	}
 	/**
 	 * @param {number} previousX
