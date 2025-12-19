@@ -64,6 +64,7 @@ class SceneObject {
 	 */
 	constructor(id, data) {
 		this.data = data
+		this._originalData = structuredClone(this.data)
 		this.objectID = id
 		/** @type {number | null} */
 		this.editedTime = null;
@@ -418,13 +419,6 @@ class LinearMovementHandle extends Handle {
 			o.linearMove(dx, dy)
 		}
 	}
-	finishMovement() {
-		super.finishMovement()
-		// Send edits
-		for (var o of this.selection.objects) {
-			o.editedTime = Date.now()
-		}
-	}
 }
 
 class Viewport {
@@ -525,8 +519,15 @@ class Renderer {
 			if (obj.editedTime == null) continue;
 			var timeDelta = Date.now() - obj.editedTime;
 			if (timeDelta > 500) {
+				this.whiteboard.doAction(new USIEditObjects(this.whiteboard, [{
+					objectID: obj.objectID,
+					previousData: obj._originalData,
+					data: obj.data
+				}]))
 				this.whiteboard.connection.editObject(obj.objectID, obj.data)
+				// Reset object
 				obj.editedTime = null
+				obj._originalData = structuredClone(obj.data)
 			}
 		}
 	}
@@ -547,6 +548,9 @@ class Connection {
 		this.webSocket = ws
 		ws.addEventListener("open", () => {
 			ws.send(location.pathname.split("/").at(-2) ?? "ERROR")
+		})
+		ws.addEventListener("close", () => {
+			alert("Lost connection with the server!")
 		})
 		ws.addEventListener("message", this.onmessage.bind(this))
 	}
@@ -1432,6 +1436,27 @@ class USIEraseObjects extends UndoStackItem {
 		}
 	}
 	invert() { return new USICreateObjects(this.whiteboard, [...this.objects]) }
+}
+class USIEditObjects extends UndoStackItem {
+	/**
+	 * @param {Whiteboard} whiteboard
+	 * @param {{ objectID: number, previousData: Object, data: Object }[]} objects
+	 */
+	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
+	do() {
+		for (var o of this.objects) {
+			var realObj = this.whiteboard.findObject(o.objectID);
+			realObj.data = o.data;
+			realObj.reload();
+			this.whiteboard.connection.editObject(o.objectID, o.data);
+			this.whiteboard.updateSelection();
+		}
+	}
+	invert() { return new USIEditObjects(this.whiteboard, this.objects.map((v) => ({
+		objectID: v.objectID,
+		previousData: v.data,
+		data: v.previousData
+	}))) }
 }
 
 
