@@ -23,47 +23,52 @@ document.querySelector(".menu")?.addEventListener("click", (event) => {
 	var modeOutput = document.querySelector('#mode-output')
 	if (modeOutput != null) modeOutput.textContent = getCurrentMode()
 	// De-select items
-	if (menuoption?.dataset.mode != "Move") {
-		selection = []
-		updateViewPos()
-		updateSelectionWindow()
-	}
+	window.dispatchEvent(new Event("Custom-Switch-Tools"));
 	// Draw Mode window
 	if (menuoption?.dataset.mode == "Draw") document.querySelector("#drawmode")?.classList.remove("hidden")
 	else document.querySelector("#drawmode")?.classList.add("hidden")
 }, false)
+/** @returns {"Draw" | "Text" | "Move" | "Select" | "Erase"} */
+function getCurrentMode() {
+	// @ts-ignore
+	return document.querySelector(".menu-option-selected").dataset.mode
+}
 
 class SceneObject {
-	typeID = "[ERROR]"
+	static typeID = "[ERROR]"
 	/**
+	 * @param {Whiteboard} whiteboard
 	 * @param {number} id
 	 * @param {Object<string, any>} data
 	 */
-	constructor(id, data) {
+	constructor(whiteboard, id, data) {
+		this.whiteboard = whiteboard
 		this.data = data
 		this.objectID = id
 	}
 	add() {
-		objects.push(this)
+		this.whiteboard.objects.push(this)
 	}
 	verify() {}
 	unverify() {}
 	update() {}
 	remove() {
-		objects.splice(objects.indexOf(this), 1)
+		this.whiteboard.objects.splice(this.whiteboard.objects.indexOf(this), 1)
 	}
 	createData() {
 		return {}
 	}
 	/**
+	 * Creates an object given its type ID, object ID, and data. Adds the object to the screen.
+	 * @param {Whiteboard} whiteboard
 	 * @param {String} typeID
 	 * @param {Object<string, any>} data
 	 * @param {number} id
 	 * @returns {SceneObject}
 	 */
-	static createFromDataAndID(typeID, data, id) {
+	static createFromDataAndID(whiteboard, typeID, data, id) {
 		var objClass = objectTypes[typeID]
-		var o = new objClass(id, data)
+		var o = new objClass(whiteboard, id, data)
 		o.add()
 		return o
 	}
@@ -89,13 +94,14 @@ class SceneObject {
 	}
 }
 class DrawingObject extends SceneObject {
-	typeID = "drawing"
+	static typeID = "drawing"
 	/**
+	 * @param {Whiteboard} whiteboard
 	 * @param {number} id
 	 * @param {Object<string, any>} data
 	 */
-	constructor(id, data) {
-		super(id, data)
+	constructor(whiteboard, id, data) {
+		super(whiteboard, id, data)
 		/** @type {{ x: number, y: number }[]} */
 		this.path = data.d
 		this.color = data.color
@@ -115,9 +121,10 @@ class DrawingObject extends SceneObject {
 		this.elm.setAttribute("opacity", "0.5")
 	}
 	update() {
-		this.elm.setAttribute("d", pointsToPath(this.path.map((v) => getScreenPosFromStagePos(v.x, v.y))))
+		const _viewport = this.whiteboard.viewport;
+		this.elm.setAttribute("d", pointsToPath(this.path.map((v) => _viewport.getScreenPosFromStagePos(v.x, v.y))))
 		// this.elm.setAttribute("stroke-width", (5 * viewPos.zoom).toString())
-		if (selection.indexOf(this) != -1) {
+		if (this.whiteboard.selection.indexOf(this) != -1) {
 			this.elm.setAttribute("stroke", "blue")
 			this.elm.setAttribute("stroke-width", "8")
 		} else {
@@ -135,7 +142,7 @@ class DrawingObject extends SceneObject {
 	/** @param {{ x: number, y: number }} pos */
 	collidepoint(pos) {
 		for (var i = 0; i < this.path.length - 1; i++) {
-			if (distanceBetweenPointAndLineSegment(pos, this.path[i], this.path[i + 1]) < 3 / viewPos.zoom) {
+			if (distanceBetweenPointAndLineSegment(pos, this.path[i], this.path[i + 1]) < 3 / this.whiteboard.viewport.zoom) {
 				return true
 			}
 		}
@@ -166,13 +173,14 @@ class DrawingObject extends SceneObject {
 	}
 }
 class TextObject extends SceneObject {
-	typeID = "text"
+	static typeID = "text"
 	/**
+	 * @param {Whiteboard} whiteboard
 	 * @param {number} id
 	 * @param {Object<string, any>} data
 	 */
-	constructor(id, data) {
-		super(id, data)
+	constructor(whiteboard, id, data) {
+		super(whiteboard, id, data)
 		/** @type {{ x: number, y: number }} */
 		this.pos = data.pos
 		/** @type {string} */
@@ -218,10 +226,11 @@ class TextObject extends SceneObject {
 	}
 	update() {
 		if (document.activeElement != this.elm) this.elm.value = this.text
-		this.elm.setAttribute("style", `top: ${(this.pos.y * viewPos.zoom) + viewPos.y}px; left: ${(this.pos.x * viewPos.zoom) + viewPos.x}px; transform: scale(${viewPos.zoom}); transform-origin: 0px 0px;`)
+		const _viewport = this.whiteboard.viewport;
+		this.elm.setAttribute("style", `top: ${(this.pos.y * _viewport.zoom) + _viewport.y}px; left: ${(this.pos.x * _viewport.zoom) + _viewport.x}px; transform: scale(${_viewport.zoom}); transform-origin: 0px 0px;`)
 		this.elm.dispatchEvent(new KeyboardEvent("input"))
 		// Focus
-		if (selection.indexOf(this) != -1) {
+		if (this.whiteboard.selection.indexOf(this) != -1) {
 			this.elm.classList.add("focus-shadow")
 		} else {
 			this.elm.classList.remove("focus-shadow")
@@ -233,7 +242,7 @@ class TextObject extends SceneObject {
 	}
 	/** @param {{ x: number, y: number }} pos */
 	collidepoint(pos) {
-		var screenPos = getScreenPosFromStagePos(pos.x, pos.y)
+		var screenPos = this.whiteboard.viewport.getScreenPosFromStagePos(pos.x, pos.y)
 		return document.elementsFromPoint(screenPos.x, screenPos.y).includes(this.elm)
 	}
 	/**
@@ -242,7 +251,7 @@ class TextObject extends SceneObject {
 	 */
 	colliderect(pos, size) {
 		var elementRect = this.elm.getBoundingClientRect()
-		var stageSize = { x: elementRect.width * viewPos.zoom, y: elementRect.height * viewPos.zoom }
+		var stageSize = { x: elementRect.width * this.whiteboard.viewport.zoom, y: elementRect.height * this.whiteboard.viewport.zoom }
 		// stagePos = this.pos
 		return pos.x <= this.pos.x + stageSize.x && pos.x + size.x >= this.pos.x && pos.y <= this.pos.y + stageSize.y && pos.y + size.y >= this.pos.y
 	}
@@ -268,113 +277,208 @@ class TextObject extends SceneObject {
 }
 
 /** @type {Object<string, typeof SceneObject>} */
-var objectTypes = {
-	"drawing": DrawingObject,
-	"text": TextObject
-}
+const objectTypes = (() => {
+	/** @type {Object<string, typeof SceneObject>} */
+	var objectTypes = {};
+	for (var cls of [
+		DrawingObject,
+		TextObject
+	]) {
+		objectTypes[cls.typeID] = cls;
+	}
+	return objectTypes;
+})();
 
-/** @type {SceneObject[]} */
-var objects = []
-
-/** @type {SceneObject[]} */
-var selection = []
-
-/** @type {{ x: number, y: number, zoom: number }} */
-var viewPos = { x: 0, y: 0, zoom: 1 }
-
-/** @returns {"Draw" | "Text" | "Move" | "Select" | "Erase"} */
-function getCurrentMode() {
-	// @ts-ignore
-	return document.querySelector(".menu-option-selected").dataset.mode
-}
-// function updateViewPos() {
-// 	theSVG.setAttribute("style", `position: absolute; top: ${viewPos.y}px; left: ${viewPos.x}px; transform: scale(${viewPos.zoom}); transform-origin: top left;`)
-// 	// log(theSVG.getAttribute("style"))
-// }
-function updateViewPos() {
-	for (var i = 0; i < objects.length; i++) {
-		objects[i].update()
+class Viewport {
+	/**
+	 * @param {() => void} updateCallback
+	 */
+	constructor(updateCallback) {
+		this.x = 0;
+		this.y = 0;
+		this.zoom = 1;
+		this.updateAllObjects = updateCallback
+	}
+	/**
+	 * @param {number} x
+	 * @param {number} y
+	 */
+	getStagePosFromScreenPos(x, y) {
+		var realPos = { x: (x - this.x) / this.zoom, y: (y - this.y) / this.zoom }
+		return realPos
+	}
+	/**
+	 * @param {number} x
+	 * @param {number} y
+	 */
+	getScreenPosFromStagePos(x, y) {
+		var realPos = { x: (x * this.zoom) + this.x, y: (y * this.zoom) + this.y }
+		return realPos
+	}
+	/**
+	 * @param {{ x: number, y: number }} origin
+	 * @param {number} amount
+	 */
+	zoomView(origin, amount) {
+		this.x += ((this.x - origin.x) * amount) + (origin.x - this.x)
+		this.y += ((this.y - origin.y) * amount) + (origin.y - this.y)
+		this.zoom *= amount
 	}
 }
-function updateSelectionWindow() {
-	// update window
-	var window = document.querySelector(".selection-window")
-	if (window == null) throw new Error(".selection-window is missing")
-	if (selection.length == 0) {
-		window.classList.remove("active")
-	} else {
-		window.classList.add("active")
+class Whiteboard {
+	constructor() {
+		this.viewport = new Viewport(this.updateAllObjects.bind(this))
+		/** @type {SceneObject[]} */
+		this.objects = []
+		/** @type {SceneObject[]} */
+		this.selection = []
+		this.connection = new Connection(this)
+		// Undo stack objects
+		this.shiftKeyDown = false
+		/** @type {UndoStackItem[]} */
+		this.undo_stack = []
+		/** @type {UndoStackItem[]} */
+		this.redo_stack = []
+		this.addEventListeners()
+		// Touch handlers
+		this.touchHandler = new TouchHandler(this)
+		this.touchHandler.addEventListeners()
 	}
-	// update number
-	var number = document.querySelector("#selection-number")
-	if (number == null) throw new Error("#selection-number is missing")
-	number.textContent = selection.length.toString();
-	// update s
-	var s = document.querySelector("#selection-s")
-	if (s == null) throw new Error("#selection-s is missing")
-	if (selection.length == 1) s.classList.add("hidden");
-	else s.classList.remove("hidden");
-}
-/**
- * @param {number} x
- * @param {number} y
- */
-function getStagePosFromScreenPos(x, y) {
-	var realPos = { x: (x - viewPos.x) / viewPos.zoom, y: (y - viewPos.y) / viewPos.zoom }
-	return realPos
-}
-/**
- * @param {number} x
- * @param {number} y
- */
-function getScreenPosFromStagePos(x, y) {
-	var realPos = { x: (x * viewPos.zoom) + viewPos.x, y: (y * viewPos.zoom) + viewPos.y }
-	return realPos
-}
-
-/**
- * @param {{ x: number, y: number }} origin
- * @param {number} amount
- */
-function zoomView(origin, amount) {
-	// viewPos.x *= ((amount * origin.x) / -viewPos.x) + amount + (origin.x / viewPos.x)
-	// viewPos.y *= ((amount * origin.y) / -viewPos.y) + amount + (origin.y / viewPos.y)
-	viewPos.x += ((viewPos.x - origin.x) * amount) + (origin.x - viewPos.x)
-	viewPos.y += ((viewPos.y - origin.y) * amount) + (origin.y - viewPos.y)
-	viewPos.zoom *= amount
-	// log(repr(viewPos))
-}
-
-/** @param {{ x: number, y: number }} pos */
-function erase(pos) {
-	var o = [...objects]
-	for (var i = 0; i < o.length; i++) {
-		if (o[i].collidepoint(pos)) {
-			doAction(new USIEraseObject(o[i].typeID, o[i].objectID, o[i].data))
+	addEventListeners() {
+		window.addEventListener("keydown", ((/** @type {KeyboardEvent} */ e) => {
+			if (e.key == "Shift") this.shiftKeyDown = true
+			if (e.key == "Escape") {
+				// Remove selection
+				this.selection = [];
+				this.updateAllObjects();
+				this.updateSelectionWindow();
+			}
+			if (e.key == "Backspace" || e.key == "Delete") {
+				// Delete selection
+				throw new Error("Can't delete multiple objects! (Yet!)")
+				// this.selection.forEach((v) => v.removeAndSendErase());
+				// this.selection = [];
+				// this.updateSelectionWindow();
+			}
+			if (e.ctrlKey) {
+				if (e.key == "z") this.undo()
+				if (e.key == "Z") this.redo()
+				if (e.key == "y") this.redo()
+				if (e.key == "Y") this.undo()
+			}
+		}).bind(this))
+		window.addEventListener("keyup", ((/** @type {KeyboardEvent} */ e) => {
+			if (e.key == "Shift") this.shiftKeyDown = false
+		}).bind(this))
+		window.addEventListener("Custom-Switch-Tools", (() => {
+			this.selection = []
+			this.updateAllObjects()
+			this.updateSelectionWindow()
+		}).bind(this))
+		this.updateUndoButtons()
+	}
+	updateAllObjects() {
+		for (var i = 0; i < this.objects.length; i++) {
+			this.objects[i].update()
 		}
 	}
-}
-/** @param {number} objectID */
-function findObject(objectID) {
-	for (var o of objects) {
-		if (o.objectID == objectID) {
-			return o;
+	/** @param {number} objectID */
+	findObject(objectID) {
+		for (var o of this.objects) {
+			if (o.objectID == objectID) {
+				return o;
+			}
+		}
+		throw new Error("Object not found with ID: " + objectID)
+	}
+	/** @param {number} objectID */
+	findObjectSafe(objectID) {
+		for (var o of this.objects) {
+			if (o.objectID == objectID) {
+				return o;
+			}
+		}
+		return undefined;
+	}
+	/** @param {{ x: number, y: number }} pos */
+	eraseAtPoint(pos) {
+		var o = [...this.objects]
+		for (var i = 0; i < o.length; i++) {
+			if (o[i].collidepoint(pos)) {
+				// @ts-ignore
+				this.doAction(new USIEraseObject(this, o[i].constructor.typeID, o[i].objectID, o[i].data))
+			}
 		}
 	}
-	throw new Error("Object not found with ID: " + objectID)
-}
-/** @param {number} objectID */
-function findObjectSafe(objectID) {
-	for (var o of objects) {
-		if (o.objectID == objectID) {
-			return o;
+	updateSelectionWindow() {
+		// update window
+		var window = document.querySelector(".selection-window")
+		if (window == null) throw new Error(".selection-window is missing")
+		if (this.selection.length == 0) {
+			window.classList.remove("active")
+		} else {
+			window.classList.add("active")
 		}
+		// update number
+		var number = document.querySelector("#selection-number")
+		if (number == null) throw new Error("#selection-number is missing")
+		number.textContent = this.selection.length.toString();
+		// update s
+		var s = document.querySelector("#selection-s")
+		if (s == null) throw new Error("#selection-s is missing")
+		if (this.selection.length == 1) s.classList.add("hidden");
+		else s.classList.remove("hidden");
 	}
-	return undefined;
+	/**
+	 * @param {UndoStackItem} item
+	 */
+	doAction(item) {
+		item.do()
+		this.undo_stack.push(item.invert())
+		this.redo_stack = []
+		this.updateUndoButtons()
+	}
+	undo() {
+		// Get item
+		var item = this.undo_stack.pop()
+		if (item == undefined) return
+		// Undo
+		item.do()
+		// Add to redo stack
+		this.redo_stack.push(item.invert())
+		// Update
+		this.updateUndoButtons()
+	}
+	redo() {
+		// Get item
+		var item = this.redo_stack.pop()
+		if (item == undefined) return
+		// Redo
+		item.do()
+		// Add back to undo stack
+		this.undo_stack.push(item.invert())
+		// Update
+		this.updateUndoButtons()
+	}
+	updateUndoButtons() {
+		// Undo Button
+		var u = document.querySelector("button[onclick='whiteboard.undo()']")
+		if (u == null) throw new Error("The undo button doesn't exist")
+		if (this.undo_stack.length == 0) u.setAttribute("disabled", "true")
+		else u.removeAttribute("disabled")
+		// Redo Button
+		var r = document.querySelector("button[onclick='whiteboard.redo()']")
+		if (r == null) throw new Error("The redo button doesn't exist")
+		if (this.redo_stack.length == 0) r.setAttribute("disabled", "true")
+		else r.removeAttribute("disabled")
+	}
 }
 
 class Connection {
-	constructor() {
+	/** @param {Whiteboard} whiteboard */
+	constructor(whiteboard) {
+		this.whiteboard = whiteboard;
+		// Create websocket
 		var ws = new WebSocket("ws://" + location.hostname + ":8062/")
 		this.webSocket = ws
 		ws.addEventListener("open", () => {
@@ -392,16 +496,16 @@ class Connection {
 			console.error("[Server]", message.data)
 		} else if (message.type == "create_object") {
 			// Search for existing object
-			var obj = findObjectSafe(message.objectID)
+			var obj = this.whiteboard.findObjectSafe(message.objectID)
 			// Create new object?
 			if (obj == undefined) {
-				obj = SceneObject.createFromDataAndID(message.typeID, message.data, message.objectID)
+				obj = SceneObject.createFromDataAndID(this.whiteboard, message.typeID, message.data, message.objectID)
 			}
 			// Verify object!
 			obj.verify()
 		} else if (message.type == "remove_object") {
 			// Find object
-			var obj = findObjectSafe(message.objectID)
+			var obj = this.whiteboard.findObjectSafe(message.objectID)
 			// Remove
 			if (obj == undefined) {
 				console.error("Can't remove nonexistent object with ID:", message.objectID)
@@ -435,7 +539,6 @@ class Connection {
 		}))
 	}
 }
-var connection = new Connection()
 
 /**
  * List of drawing modes.
@@ -499,18 +602,20 @@ var selectedDrawingMode = "Normal"
 
 class TrackedTouch {
 	/**
+	 * @param {Whiteboard} whiteboard
 	 * @param {number} initialX
 	 * @param {number} initialY
 	 * @param {number} id
+	 * @param {TrackedTouch[]} touches
 	 * @param {boolean} isEraserButton
 	 */
-	constructor(initialX, initialY, id, isEraserButton) {
+	constructor(whiteboard, initialX, initialY, id, touches, isEraserButton) {
+		this.whiteboard = whiteboard
 		this.x = initialX
 		this.y = initialY
 		this.id = id
-		this.isEraserButton = isEraserButton
-		this.mode = this.getMode()
-		touches.push(this)
+		this.touches = touches
+		this.mode = this.getMode(isEraserButton)
 		// blur current element
 		var a = document.activeElement
 		if (a != null) {
@@ -530,23 +635,26 @@ class TrackedTouch {
 	}
 	remove() {
 		this.mode.onEnd(this.x, this.y)
-		touches.splice(touches.indexOf(this), 1)
+		this.touches.splice(this.touches.indexOf(this), 1)
 	}
 	cancel() {
 		this.mode.onCancel(this.x, this.y)
-		touches.splice(touches.indexOf(this), 1)
+		this.touches.splice(this.touches.indexOf(this), 1)
 	}
-	/** @returns {TouchMode} */
-	getMode() {
-		if (this.isEraserButton) return new EraseTouchMode(this)
+	/**
+	 * @param {boolean} isEraserButton
+	 * @returns {TouchMode}
+	 */
+	getMode(isEraserButton) {
+		if (isEraserButton) return new EraseTouchMode(this)
 		// First of all, if there is another touch, we are definitely zooming or panning or something.
-		if (touches.length >= 1) {
+		if (this.touches.length >= 1) {
 			// Also, so are all the other touches.
-			var _t = [...touches]
+			var _t = [...this.touches]
 			for (var i = 0; i < _t.length; i++) {
 				_t[i].cancel()
 				_t[i].mode = new PanTouchMode(_t[i])
-				touches.push(_t[i])
+				this.touches.push(_t[i])
 			}
 			return new PanTouchMode(this)
 		}
@@ -559,10 +667,7 @@ class TrackedTouch {
 			return color.value
 		})(), drawingModes[selectedDrawingMode])
 		if (mode == "Text") return new TextTouchMode(this)
-		if (mode == "Move") {
-			if (selection.length >= 1) return new MoveSelectionTouchMode(this)
-			return new PanTouchMode(this)
-		}
+		if (mode == "Move") return new PanTouchMode(this)
 		if (mode == "Select") return new SelectTouchMode(this)
 		if (mode == "Erase") return new EraseTouchMode(this)
 		// Uhhhh.....
@@ -609,7 +714,7 @@ class DrawTouchMode extends TouchMode {
 	constructor(touch, color, drawing_mode) {
 		super(touch)
 		/** @type {{ x: number, y: number }[]} */
-		this.points = [getStagePosFromScreenPos(touch.x, touch.y)]
+		this.points = [this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y)]
 		/** @type {SVGPathElement} */
 		this.elm = document.createElementNS("http://www.w3.org/2000/svg", "path")
 		this.elm.setAttribute("fill", "none")
@@ -626,10 +731,11 @@ class DrawTouchMode extends TouchMode {
 	 * @param {number} newY
 	 */
 	onMove(previousX, previousY, newX, newY) {
-		this.points.push(getStagePosFromScreenPos(this.touch.x, this.touch.y))
+		const _viewport = this.touch.whiteboard.viewport;
+		this.points.push(_viewport.getStagePosFromScreenPos(this.touch.x, this.touch.y))
 		// Find points to display
 		var stagePoints = this.drawing_mode(this.points)
-		var screenPoints = stagePoints.map((v) => getScreenPosFromStagePos(v.x, v.y))
+		var screenPoints = stagePoints.map((v) => _viewport.getScreenPosFromStagePos(v.x, v.y))
 		this.elm.setAttribute("d", pointsToPath(screenPoints))
 		// this.elm.setAttribute("stroke-width", (5 * viewPos.zoom).toString())
 	}
@@ -642,7 +748,7 @@ class DrawTouchMode extends TouchMode {
 		this.elm.remove()
 		// Add drawing to screen
 		if (this.points.length > 6) {
-			doAction(new USICreateObject("drawing", SceneObject.generateObjectID(), {
+			this.touch.whiteboard.doAction(new USICreateObject(this.touch.whiteboard, "drawing", SceneObject.generateObjectID(), {
 				"d": this.drawing_mode(this.points),
 				"color": this.color
 			}))
@@ -679,9 +785,9 @@ class TextTouchMode extends TouchMode {
 	 * @param {number} previousY
 	 */
 	onEnd(previousX, previousY) {
-		doAction(new USICreateObject("text", SceneObject.generateObjectID(), {
+		this.touch.whiteboard.doAction(new USICreateObject(this.touch.whiteboard, "text", SceneObject.generateObjectID(), {
 			"text": "Enter text here",
-			"pos": getStagePosFromScreenPos(previousX, previousY)
+			"pos": this.touch.whiteboard.viewport.getStagePosFromScreenPos(previousX, previousY)
 		}))
 	}
 	/**
@@ -709,88 +815,27 @@ class PanTouchMode extends TouchMode {
 	 */
 	onMove(previousX, previousY, newX, newY) {
 		var previousPos = {
-			x: avg(touches.map((v) => v.x)),
-			y: avg(touches.map((v) => v.y))
+			x: avg(this.touch.touches.map((v) => v.x)),
+			y: avg(this.touch.touches.map((v) => v.y))
 		}
-		var previousZoom = avg(touches.map((v) => dist(v, previousPos)))
+		var previousZoom = avg(this.touch.touches.map((v) => dist(v, previousPos)))
 		var target = this.touch
 		var newPos = {
-			x: avg(touches.map((v) => (v == target ? newX : v.x))),
-			y: avg(touches.map((v) => (v == target ? newY : v.y)))
+			x: avg(this.touch.touches.map((v) => (v == target ? newX : v.x))),
+			y: avg(this.touch.touches.map((v) => (v == target ? newY : v.y)))
 		}
-		var newZoom = avg(touches.map((v) => dist(v == target ? {x:newX,y:newY} : v, newPos)))
+		var newZoom = avg(this.touch.touches.map((v) => dist(v == target ? {x:newX,y:newY} : v, newPos)))
 		var zoom = newZoom / previousZoom
 		if (previousZoom == 0 || newZoom == 0) zoom = 1
-		viewPos.x += newPos.x - previousPos.x
-		viewPos.y += newPos.y - previousPos.y
-		zoomView(newPos, zoom)
+		var viewport = this.touch.whiteboard.viewport;
+		viewport.x += newPos.x - previousPos.x
+		viewport.y += newPos.y - previousPos.y
+		viewport.zoomView(newPos, zoom)
 		// Update
-		updateViewPos()
+		viewport.updateAllObjects()
 	}
 	toString() {
 		return `PanTouchMode {}`
-	}
-}
-class MoveSelectionTouchMode extends TouchMode {
-	/**
-	 * @param {TrackedTouch} touch
-	 */
-	constructor(touch) {
-		super(touch)
-		this.moved = 0
-	}
-	/**
-	 * @param {number} previousX
-	 * @param {number} previousY
-	 * @param {number} newX
-	 * @param {number} newY
-	 */
-	onMove(previousX, previousY, newX, newY) {
-		// Shift selection
-		for (var i = 0; i < selection.length; i++) {
-			var o = selection[i]
-			var dx = (newX - previousX) / viewPos.zoom
-			var dy = (newY - previousY) / viewPos.zoom
-			o.move(dx, dy)
-		}
-		this.moved += 1
-		// Update
-		updateViewPos()
-	}
-	/**
-	 * @param {number} previousX
-	 * @param {number} previousY
-	 */
-	onEnd(previousX, previousY) {
-		// If not moved
-		if (this.moved <= 3) {
-			this.onCancel(previousX, previousY)
-			selection = []
-			updateViewPos();
-			updateSelectionWindow();
-			return;
-		}
-		// Save selection
-		for (var i = 0; i < selection.length; i++) {
-			var o = selection[i]
-			// @ts-ignore
-			doAction(new USIEditObject(o, null, o.createData()))
-		}
-	}
-	/**
-	 * @param {number} previousX
-	 * @param {number} previousY
-	 */
-	onCancel(previousX, previousY) {
-		// Revert all the items
-		for (var i = 0; i < selection.length; i++) {
-			var o = selection[i]
-			// @ts-ignore
-			o.revertToServer()
-		}
-	}
-	toString() {
-		return `MoveSelectionTouchMode {}`
 	}
 }
 class SelectTouchMode extends TouchMode {
@@ -800,9 +845,9 @@ class SelectTouchMode extends TouchMode {
 	constructor(touch) {
 		super(touch)
 		/** @type {{ x: number, y: number }} */
-		this.startPos = getStagePosFromScreenPos(touch.x, touch.y)
+		this.startPos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y)
 		/** @type {{ x: number, y: number }} */
-		this.endPos = getStagePosFromScreenPos(touch.x, touch.y)
+		this.endPos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y)
 		/** @type {SVGRectElement} */
 		this.elm = document.createElementNS("http://www.w3.org/2000/svg", "rect")
 		this.elm.setAttribute("fill", "#AAF8")
@@ -815,10 +860,10 @@ class SelectTouchMode extends TouchMode {
 	 * @param {number} newY
 	 */
 	onMove(previousX, previousY, newX, newY) {
-		this.endPos = getStagePosFromScreenPos(newX, newY)
+		this.endPos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(newX, newY)
 		// Get screen locations
-		var startStagePos = getScreenPosFromStagePos(this.startPos.x, this.startPos.y)
-		var endStagePos = getScreenPosFromStagePos(this.endPos.x, this.endPos.y)
+		var startStagePos = this.touch.whiteboard.viewport.getScreenPosFromStagePos(this.startPos.x, this.startPos.y)
+		var endStagePos = this.touch.whiteboard.viewport.getScreenPosFromStagePos(this.endPos.x, this.endPos.y)
 		// Apply rect width and height
 		var width = endStagePos.x - startStagePos.x
 		if (width >= 0) {
@@ -860,15 +905,15 @@ class SelectTouchMode extends TouchMode {
 		var rectPos = { x, y }
 		var rectSize = { x: width, y: height }
 		// Select items!
-		if (!shiftKeyDown) selection = []
-		for (var i = 0; i < objects.length; i++) {
-			if (selection.includes(objects[i])) continue;
-			if (objects[i].colliderect(rectPos, rectSize)) {
-				selection.push(objects[i])
+		if (!this.touch.whiteboard.shiftKeyDown) this.touch.whiteboard.selection = []
+		for (var i = 0; i < this.touch.whiteboard.objects.length; i++) {
+			if (this.touch.whiteboard.selection.includes(this.touch.whiteboard.objects[i])) continue;
+			if (this.touch.whiteboard.objects[i].colliderect(rectPos, rectSize)) {
+				this.touch.whiteboard.selection.push(this.touch.whiteboard.objects[i])
 			}
 		}
-		updateViewPos()
-		updateSelectionWindow()
+		this.touch.whiteboard.updateAllObjects()
+		this.touch.whiteboard.updateSelectionWindow()
 	}
 	/**
 	 * @param {number} previousX
@@ -887,7 +932,7 @@ class EraseTouchMode extends TouchMode {
 	 */
 	constructor(touch) {
 		super(touch)
-		erase(getStagePosFromScreenPos(touch.x, touch.y))
+		this.touch.whiteboard.eraseAtPoint(this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y))
 	}
 	/**
 	 * @param {number} previousX
@@ -896,237 +941,176 @@ class EraseTouchMode extends TouchMode {
 	 * @param {number} newY
 	 */
 	onMove(previousX, previousY, newX, newY) {
-		erase(getStagePosFromScreenPos(this.touch.x, this.touch.y))
+		this.touch.whiteboard.eraseAtPoint(this.touch.whiteboard.viewport.getStagePosFromScreenPos(this.touch.x, this.touch.y))
 	}
 	toString() {
 		return `EraseTouchMode {}`
 	}
 }
-/**
- * @type {TrackedTouch[]}
- */
-var touches = []
 
-/**
- * @param {number} id
- * @param {{ x: number; y: number; }} pos
- */
-function mousemove(id, pos) {
-	for (var i = 0; i < touches.length; i++) {
-		if (touches[i].id == id) {
-			touches[i].updatePos(pos.x, pos.y)
+class TouchHandler {
+	/** @param {Whiteboard} whiteboard */
+	constructor(whiteboard) {
+		this.whiteboard = whiteboard
+		/** @type {TrackedTouch[]} */
+		this.touches = []
+	}
+	/**
+	 * @param {number} id
+	 * @param {{ x: number; y: number; }} pos
+	 */
+	mousemove(id, pos) {
+		for (var i = 0; i < this.touches.length; i++) {
+			if (this.touches[i].id == id) {
+				this.touches[i].updatePos(pos.x, pos.y)
+			}
 		}
+	}
+	/**
+	 * @param {number} id
+	 */
+	mouseup(id) {
+		for (var i = 0; i < this.touches.length; i++) {
+			if (this.touches[i].id == id) {
+				this.touches[i].remove()
+			}
+		}
+	}
+	/**
+	 * @param {number} id
+	 */
+	mousecancel(id) {
+		for (var i = 0; i < this.touches.length; i++) {
+			if (this.touches[i].id == id) {
+				this.touches[i].cancel()
+			}
+		}
+	}
+	/** @param {TouchList} touchList */
+	handleTouches(touchList) {
+		// Check for new or updated touches
+		for (var i = 0; i < touchList.length; i++) {
+			// See if we already have this touch
+			var touchID = touchList[i].identifier
+			var idx = this.touches.findIndex((v) => v.id == touchID)
+			if (idx == -1) {
+				// New touch!
+				var touch = new TrackedTouch(this.whiteboard, touchList[i].clientX, touchList[i].clientY, touchID, this.touches, false)
+				this.touches.push(touch);
+			} else {
+				// Update existing touch!
+				this.touches[idx].updatePos(touchList[i].clientX, touchList[i].clientY)
+			}
+		}
+		// Check for old touches
+		var _t = [...this.touches]
+		for (var i = 0; i < _t.length; i++) {
+			var touchID = _t[i].id
+			var idx = [...touchList].findIndex((v) => v.identifier == touchID)
+			if (idx == -1) {
+				// Old touch!
+				_t[i].remove()
+			}
+		}
+	}
+	addEventListeners() {
+		const _this = this;
+		// Mouse Listeners
+		theSVG.parentElement?.addEventListener("mousedown", (e) => {
+			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
+			if (e.buttons == 4 || e.buttons == 5) {
+				_this.mousecancel(0)
+				this.touches.push(new TrackedTouch(_this.whiteboard, e.clientX, e.clientY, 0, _this.touches, true));
+			} else {
+				_this.mouseup(0)
+				this.touches.push(new TrackedTouch(_this.whiteboard, e.clientX, e.clientY, 0, _this.touches, false));
+			}
+		});
+		theSVG.parentElement?.addEventListener("mousemove", (e) => {
+			_this.mousemove(0, {
+				x: e.clientX,
+				y: e.clientY
+			});
+		});
+		theSVG.parentElement?.addEventListener("mouseup", (e) => {
+			_this.mouseup(0);
+		});
+		theSVG.parentElement?.addEventListener("wheel", (e) => {
+			_this.whiteboard.viewport.zoomView({
+				x: e.clientX,
+				y: e.clientY
+			}, Math.pow(2, e.deltaY / -500));
+			_this.whiteboard.updateAllObjects();
+		});
+		// Touch Listeners
+		theSVG.parentElement?.addEventListener("touchstart", (e) => {
+			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
+			e.preventDefault();
+			_this.handleTouches(e.touches)
+			return false
+		}, false);
+		theSVG.parentElement?.addEventListener("touchmove", (e) => {
+			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
+			e.preventDefault();
+			_this.handleTouches(e.touches)
+			return false
+		}, false);
+		theSVG.parentElement?.addEventListener("touchcancel", (e) => {
+			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
+			e.preventDefault();
+			_this.handleTouches(e.touches)
+			return false
+		}, false);
+		theSVG.parentElement?.addEventListener("touchend", (e) => {
+			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
+			e.preventDefault();
+			_this.handleTouches(e.touches)
+			return false
+		}, false);
 	}
 }
-/**
- * @param {number} id
- */
-function mouseup(id) {
-	for (var i = 0; i < touches.length; i++) {
-		if (touches[i].id == id) {
-			touches[i].remove()
-		}
-	}
-}
-/**
- * @param {number} id
- */
-function mousecancel(id) {
-	for (var i = 0; i < touches.length; i++) {
-		if (touches[i].id == id) {
-			touches[i].cancel()
-		}
-	}
-}
-/** @param {TouchList} touchList */
-function handleTouches(touchList) {
-	// Check for new or updated touches
-	for (var i = 0; i < touchList.length; i++) {
-		// See if we already have this touch
-		var touchID = touchList[i].identifier
-		var idx = touches.findIndex((v) => v.id == touchID)
-		if (idx == -1) {
-			// New touch!
-			new TrackedTouch(touchList[i].clientX, touchList[i].clientY, touchID, false)
-		} else {
-			// Update existing touch!
-			touches[idx].updatePos(touchList[i].clientX, touchList[i].clientY)
-		}
-	}
-	// Check for old touches
-	var _t = [...touches]
-	for (var i = 0; i < _t.length; i++) {
-		var touchID = _t[i].id
-		var idx = [...touchList].findIndex((v) => v.identifier == touchID)
-		if (idx == -1) {
-			// Old touch!
-			_t[i].remove()
-		}
-	}
-}
-
-theSVG.parentElement?.addEventListener("mousedown", (e) => {
-	if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
-	if (e.buttons == 4 || e.buttons == 5) {
-		mousecancel(0)
-		new TrackedTouch(e.clientX, e.clientY, 0, true);
-	} else {
-		mouseup(0)
-		new TrackedTouch(e.clientX, e.clientY, 0, false);
-	}
-});
-theSVG.parentElement?.addEventListener("mousemove", (e) => {
-	mousemove(0, {
-		x: e.clientX,
-		y: e.clientY
-	});
-});
-theSVG.parentElement?.addEventListener("mouseup", (e) => {
-	mouseup(0);
-});
-theSVG.parentElement?.addEventListener("wheel", (e) => {
-	zoomView({
-		x: e.clientX,
-		y: e.clientY
-	}, Math.pow(2, e.deltaY / -500));
-	updateViewPos();
-});
-
-theSVG.parentElement?.addEventListener("touchstart", (e) => {
-	if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
-	e.preventDefault();
-	handleTouches(e.touches)
-	return false
-}, false);
-theSVG.parentElement?.addEventListener("touchmove", (e) => {
-	if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
-	e.preventDefault();
-	handleTouches(e.touches)
-	return false
-}, false);
-theSVG.parentElement?.addEventListener("touchcancel", (e) => {
-	if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
-	e.preventDefault();
-	handleTouches(e.touches)
-	return false
-}, false);
-theSVG.parentElement?.addEventListener("touchend", (e) => {
-	if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
-	e.preventDefault();
-	handleTouches(e.touches)
-	return false
-}, false);
 
 class UndoStackItem {
-	constructor() {}
+	/** @param {Whiteboard} whiteboard */
+	constructor(whiteboard) { this.whiteboard = whiteboard; }
 	do() { throw new Error(`"UndoStackItem" is an abstract class, "do" must be overridden`); }
 	/** @returns {UndoStackItem} */
 	invert() { throw new Error(`"UndoStackItem" is an abstract class, "invert" must be overridden`); }
 }
 class DummyUndoStackItem extends UndoStackItem {
 	/**
+	 * @param {Whiteboard} whiteboard
 	 * @param {number} n
 	 * @param {boolean} inverted
 	 */
-	constructor(n, inverted) { super(); this.n = n; this.inverted = inverted; }
+	constructor(whiteboard, n, inverted) { super(whiteboard); this.n = n; this.inverted = inverted; }
 	do() { console.log(this.inverted ? "redo" : "undo", this.n) }
-	invert() { return new DummyUndoStackItem(this.n, !this.inverted) }
+	invert() { return new DummyUndoStackItem(this.whiteboard, this.n, !this.inverted) }
 }
 class USICreateObject extends UndoStackItem {
 	/**
+	 * @param {Whiteboard} whiteboard
 	 * @param {string} typeID
 	 * @param {number} objectID
 	 * @param {Object} data
 	 */
-	constructor(typeID, objectID, data) { super(); this.typeID = typeID; this.objectID = objectID; this.data = data; }
-	do() { SceneObject.createFromDataAndID(this.typeID, this.data, this.objectID); connection.createObject(this.typeID, this.objectID, this.data); }
-	invert() { return new USIEraseObject(this.typeID, this.objectID, this.data) }
+	constructor(whiteboard, typeID, objectID, data) { super(whiteboard); this.typeID = typeID; this.objectID = objectID; this.data = data; }
+	do() { SceneObject.createFromDataAndID(this.whiteboard, this.typeID, this.data, this.objectID); this.whiteboard.connection.createObject(this.typeID, this.objectID, this.data); }
+	invert() { return new USIEraseObject(this.whiteboard, this.typeID, this.objectID, this.data) }
 }
 class USIEraseObject extends UndoStackItem {
 	/**
+	 * @param {Whiteboard} whiteboard
 	 * @param {string} typeID
 	 * @param {number} objectID
 	 * @param {Object} data
 	 */
-	constructor(typeID, objectID, data) { super(); this.typeID = typeID; this.objectID = objectID; this.data = data; }
-	do() { findObject(this.objectID).unverify(); connection.removeObject(this.objectID); }
-	invert() { return new USICreateObject(this.typeID, this.objectID, this.data) }
+	constructor(whiteboard, typeID, objectID, data) { super(whiteboard); this.typeID = typeID; this.objectID = objectID; this.data = data; }
+	do() { this.whiteboard.findObject(this.objectID).unverify(); this.whiteboard.connection.removeObject(this.objectID); }
+	invert() { return new USICreateObject(this.whiteboard, this.typeID, this.objectID, this.data) }
 }
 
-/** @type {UndoStackItem[]} */
-var undo_stack = []
-/** @type {UndoStackItem[]} */
-var redo_stack = []
 
-var shiftKeyDown = false
-window.addEventListener("keydown", (e) => {
-	if (e.key == "Shift") shiftKeyDown = true
-	if (e.key == "Escape") {
-		// Remove selection
-		selection = [];
-		updateViewPos();
-		updateSelectionWindow();
-	}
-	if (e.key == "Backspace" || e.key == "Delete") {
-		// Delete selection
-		// @ts-ignore
-		selection.forEach((v) => v.removeAndSendErase());
-		selection = [];
-		updateSelectionWindow();
-	}
-	if (e.ctrlKey) {
-		if (e.key == "z") undo()
-		if (e.key == "Z") redo()
-		if (e.key == "y") redo()
-		if (e.key == "Y") undo()
-	}
-})
-window.addEventListener("keyup", (e) => {
-	if (e.key == "Shift") shiftKeyDown = false
-})
 
-/**
- * @param {UndoStackItem} item
- */
-function doAction(item) {
-	item.do()
-	undo_stack.push(item.invert())
-	redo_stack = []
-	updateUndoButtons()
-}
+var whiteboard = new Whiteboard()
 
-function undo() {
-	// Get item
-	var item = undo_stack.pop()
-	if (item == undefined) return
-	// Undo
-	item.do()
-	// Add to redo stack
-	redo_stack.push(item.invert())
-	// Update
-	updateUndoButtons()
-}
-function redo() {
-	// Get item
-	var item = redo_stack.pop()
-	if (item == undefined) return
-	// Redo
-	item.do()
-	// Add back to undo stack
-	undo_stack.push(item.invert())
-	// Update
-	updateUndoButtons()
-}
-function updateUndoButtons() {
-	// Undo Button
-	var u = document.querySelector("button[onclick='undo()']")
-	if (u == null) throw new Error("The undo button doesn't exist")
-	if (undo_stack.length == 0) u.setAttribute("disabled", "true")
-	else u.removeAttribute("disabled")
-	// Redo Button
-	var r = document.querySelector("button[onclick='redo()']")
-	if (r == null) throw new Error("The redo button doesn't exist")
-	if (redo_stack.length == 0) r.setAttribute("disabled", "true")
-	else r.removeAttribute("disabled")
-}
-updateUndoButtons()
