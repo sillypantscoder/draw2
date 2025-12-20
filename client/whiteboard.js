@@ -129,6 +129,12 @@ class SceneObject {
 	linearMove(dx, dy) {
 		this.editedTime = Date.now()
 	}
+	/**
+	 * @param {Viewport} viewport
+	 * @param {{ x: number, y: number, w: number, h: number }} boundingBox
+	 * @returns {Handle[]}
+	 */
+	getHandles(viewport, boundingBox) { return []; }
 	/** @returns {string} */
 	// @ts-ignore
 	getTypeID() { return this.constructor.typeID; }
@@ -236,6 +242,10 @@ class TextObject extends SceneObject {
 		super(id, layer, data)
 		/** @type {{ x: number, y: number }} */
 		this.pos = data.pos
+		/** @type {number} */
+		this.scale = data.scale
+		/** @type {number} */
+		this.width = data.width
 		/** @type {string} */
 		this.text = data.text
 		/** @type {HTMLTextAreaElement} */
@@ -261,10 +271,11 @@ class TextObject extends SceneObject {
 			_text.text = _text.elm.value
 			_text.data.text = _text.text
 			if (_text.editedTime == null) _text.editedTime = Date.now()
-			// Update text height
-			_text.elm.dataset.width = (Math.max(..._text.elm.value.split("\n").map((v) => v.length)) + 3) + "ch"
-			_text.elm.style.height = "";
+			// Update textbox size
+			var previousHeight = _text.elm.style.height;
+			_text.elm.style.height = "0px";
 			_text.elm.dataset.height = "calc(" + _text.elm.scrollHeight + "px + 0.25em)"
+			_text.elm.style.height = previousHeight;
 		})
 		this.elm.addEventListener("blur", () => {
 			_text.elm.dispatchEvent(new KeyboardEvent("input"))
@@ -303,7 +314,8 @@ class TextObject extends SceneObject {
 	 */
 	draw(viewport, canvas, selected, onAnotherLayer) {
 		// No canvas drawing is needed
-		this.elm.setAttribute("style", `top: ${(this.pos.y * viewport.zoom) + viewport.y}px; left: ${(this.pos.x * viewport.zoom) + viewport.x}px; width: ${this.elm.dataset.width}; height: ${this.elm.dataset.height}; transform: scale(${viewport.zoom}); transform-origin: 0px 0px;`)
+		this.elm.setAttribute("style", `top: ${(this.pos.y * viewport.zoom) + viewport.y}px; left: ${(this.pos.x * viewport.zoom) + viewport.x}px; \
+width: ${this.width}px; height: ${this.elm.dataset.height}; transform: scale(${viewport.zoom * this.scale}); transform-origin: 0px 0px;`)
 		// Focus
 		if (selected) {
 			this.elm.classList.add("focus-shadow")
@@ -365,6 +377,12 @@ class TextObject extends SceneObject {
 		this.data.pos = this.pos
 		super.linearMove(dx, dy);
 	}
+	/**
+	 * @param {Viewport} viewport
+	 * @param {{ x: number, y: number, w: number, h: number }} boundingBox
+	 * @returns {Handle[]}
+	 */
+	getHandles(viewport, boundingBox) { return [new TextBoxWidthHandle(viewport, this, boundingBox), new TextBoxRescalingHandle(viewport, this, boundingBox)]; }
 	static createTextarea() {
 		var t = document.createElementNS("http://www.w3.org/1999/xhtml", "textarea")
 		if (! (t instanceof HTMLTextAreaElement)) {
@@ -434,6 +452,66 @@ class LinearMovementHandle extends Handle {
 		for (var o of this.selection.objects) {
 			o.linearMove(dx, dy)
 		}
+	}
+}
+class TextBoxWidthHandle extends Handle {
+	/**
+	 * @param {Viewport} viewport
+	 * @param {TextObject} selection
+	 * @param {{ x: number, y: number, w: number, h: number }} boundingBox
+	 */
+	constructor(viewport, selection, boundingBox) {
+		super(viewport)
+		this.selection = selection
+		this.rect = boundingBox;
+		// Find handle position
+		this.pos.x = this.rect.x + this.rect.w;
+		this.pos.y = this.rect.y;
+	}
+	/**
+	 * @param {number} x
+	 * @param {number} y
+	 */
+	moveTo(x, y) {
+		this.pos.x = Math.max(x, this.rect.x + 30);
+		// Move object
+		this.selection.width = (this.pos.x - this.rect.x) / this.selection.scale;
+		this.selection.data.width = this.selection.width;
+		this.selection.elm.dispatchEvent(new InputEvent("input"))
+		// Move rect
+		this.rect.w = this.selection.width;
+		this.rect.h = this.selection.elm.getBoundingClientRect().height;
+	}
+}
+class TextBoxRescalingHandle extends Handle {
+	/**
+	 * @param {Viewport} viewport
+	 * @param {TextObject} selection
+	 * @param {{ x: number, y: number, w: number, h: number }} boundingBox
+	 */
+	constructor(viewport, selection, boundingBox) {
+		super(viewport)
+		this.selection = selection
+		this.rect = boundingBox;
+		// Find handle position
+		this.pos.x = this.rect.x + this.rect.w;
+		this.pos.y = this.rect.y + this.rect.h;
+	}
+	/**
+	 * @param {number} x
+	 * @param {number} y
+	 */
+	moveTo(x, y) {
+		this.pos.x = Math.max(x, this.rect.x + 5);
+		var scaleFactor = (x - this.rect.x) / this.rect.w;
+		this.pos.y = this.rect.y + (scaleFactor * (this.pos.y - this.rect.y))
+		// Move object
+		this.selection.scale *= scaleFactor;
+		this.selection.data.scale = this.selection.scale;
+		this.selection.elm.dispatchEvent(new InputEvent("input"))
+		// Move rect
+		this.rect.w = this.selection.width * this.selection.scale;
+		this.rect.h = this.selection.elm.getBoundingClientRect().height;
 	}
 }
 
@@ -540,7 +618,7 @@ class Renderer {
 					previousData: obj._originalData,
 					data: obj.data
 				}]))
-				this.whiteboard.connection.editObject(obj.objectID, obj.data)
+				this.whiteboard.updateSelection()
 				// Reset object
 				obj.editedTime = null
 				obj._originalData = structuredClone(obj.data)
@@ -739,9 +817,14 @@ class Whiteboard {
 		const _viewport = this.viewport;
 		// update handles / bounding box
 		if (this.selection != null) {
-			this.selection.boundingBox = getBoundingBox(this.selection.objects.map((v) => v.getBoundingRect(_viewport)));
+			// update bounding box
+			Object.assign(this.selection.boundingBox, getBoundingBox(this.selection.objects.map((v) => v.getBoundingRect(_viewport))));
 			this.selection.originalBoundingBox = { x: this.selection.boundingBox.x, y: this.selection.boundingBox.y, w: this.selection.boundingBox.w, h: this.selection.boundingBox.h };
+			// update handles
+			var savedHandles = this.selection.handles.filter((v) => v.isDragging);
 			this.selection.handles = this.getAllHandles()
+			this.selection.handles = this.selection.handles.filter((v) => Math.min(1000, ...savedHandles.map((h) => dist(v.pos, h.pos))) > 15)
+			this.selection.handles.push(...savedHandles)
 		}
 		// update window
 		var window = document.querySelector(".selection-window")
@@ -763,7 +846,10 @@ class Whiteboard {
 	}
 	getAllHandles() {
 		if (this.selection == null) return [];
-		return [new LinearMovementHandle(this.viewport, this.selection)]
+		if (this.selection.objects.length == 1) return [
+			new LinearMovementHandle(this.viewport, this.selection),
+			...this.selection.objects[0].getHandles(this.viewport, this.selection.boundingBox)
+		]; else return [new LinearMovementHandle(this.viewport, this.selection)]
 	}
 	/**
 	 * @param {UndoStackItem} item
@@ -932,13 +1018,19 @@ class TrackedTouch {
 		}
 		// Check if we are dragging on a handle.
 		if (this.whiteboard.selection != null) {
+			/** @type {Handle | null} */
+			var closestHandle = null;
+			var closestHandleDistance = 30; // handle distance must be at most 30px
 			for (var handle of this.whiteboard.selection.handles) {
 				if (handle.isDragging) continue;
 				var handleScreenPos = this.whiteboard.viewport.getScreenPosFromStagePos(handle.pos.x, handle.pos.y)
-				if (dist(this, handleScreenPos) < 60) {
-					return new HandleDraggingTouchMode(this, handle);
+				// Check if this handle is close enough
+				if (dist(this, handleScreenPos) < closestHandleDistance) {
+					closestHandle = handle;
+					closestHandleDistance = dist(this, handleScreenPos);
 				}
 			}
+			if (closestHandle != null) return new HandleDraggingTouchMode(this, closestHandle);
 		}
 		// Then, find the selected mode in the toolbar.
 		var mode = getCurrentMode()
@@ -1091,8 +1183,10 @@ class TextTouchMode extends TouchMode {
 			typeID: "text",
 			objectID: SceneObject.generateObjectID(),
 			data: {
-				"text": "Enter text here",
-				"pos": this.touch.whiteboard.viewport.getStagePosFromScreenPos(previousX, previousY)
+				"pos": this.touch.whiteboard.viewport.getStagePosFromScreenPos(previousX, previousY),
+				"width": 200,
+				"scale": 1 / this.touch.whiteboard.viewport.zoom,
+				"text": "Enter text here"
 			}
 		}]))
 	}
