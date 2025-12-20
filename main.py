@@ -19,7 +19,7 @@ def dt(time: datetime.datetime | None = None) -> str:
 		" at " + str(((t.hour - 1) % 12) + 1) + ":" + str(t.minute).rjust(2, '0') + ":" + str(t.second).rjust(2, '0') + " " + ("AM" if t.hour < 12 else "PM")
 
 class SceneObject(typing.TypedDict):
-	objectID: int
+	layer: int
 	typeID: str
 	data: dict[str, typing.Any]
 
@@ -27,7 +27,7 @@ class Whiteboard:
 	def __init__(self, id: str):
 		self.name: str = "New Whiteboard"
 		self.created: datetime.datetime = datetime.datetime.now()
-		self.objects: list[SceneObject] = []
+		self.objects: dict[int, SceneObject] = {}
 		self.id = id
 	@staticmethod
 	def generateID():
@@ -178,20 +178,21 @@ class Draw2Server(HTTPServer):
 			for o in whiteboard.objects:
 				c.sendMessage(json.dumps({
 					"type": "create_object",
-					"objectID": o["objectID"],
-					"typeID": o["typeID"],
-					"data": o["data"]
+					"objectID": o,
+					"layer": whiteboard.objects[o]["layer"],
+					"typeID": whiteboard.objects[o]["typeID"],
+					"data": whiteboard.objects[o]["data"]
 				}))
 			return
 		# Load JSON message
 		messageData = json.loads(message)
 		if messageData["action"] == "create_object":
 			# === Create object ===
-			whiteboard.objects.append({
-				"objectID": messageData["objectID"],
+			whiteboard.objects[messageData["objectID"]] = {
+				"layer": messageData["layer"],
 				"typeID": messageData["typeID"],
 				"data": messageData["data"]
-			})
+			}
 			# Inform other clients
 			for otherClient in self.ws_server.clients:
 				if self.clientWhiteboards[otherClient.id] == whiteboard:
@@ -207,7 +208,7 @@ class Draw2Server(HTTPServer):
 			# === Remove object ===
 			o = None
 			for checkObj in whiteboard.objects:
-				if checkObj["objectID"] == messageData["objectID"]:
+				if checkObj == messageData["objectID"]:
 					o = checkObj
 			if o == None: c.sendMessage(json.dumps({
 				"type": "error",
@@ -215,7 +216,7 @@ class Draw2Server(HTTPServer):
 			}))
 			else:
 				# Actually remove the object
-				whiteboard.objects.remove(o)
+				whiteboard.objects.pop(o)
 				# Inform other clients
 				for otherClient in self.ws_server.clients:
 					if self.clientWhiteboards[otherClient.id] == whiteboard:
@@ -229,7 +230,7 @@ class Draw2Server(HTTPServer):
 			# === Edit object ===
 			o = None
 			for checkObj in whiteboard.objects:
-				if checkObj["objectID"] == messageData["objectID"]:
+				if checkObj == messageData["objectID"]:
 					o = checkObj
 			if o == None: c.sendMessage(json.dumps({
 				"type": "error",
@@ -237,7 +238,7 @@ class Draw2Server(HTTPServer):
 			}))
 			else:
 				# Update object data
-				o["data"] = messageData["newData"]
+				whiteboard.objects[o]["data"] = messageData["newData"]
 				# Inform other clients
 				for otherClient in self.ws_server.clients:
 					if self.clientWhiteboards[otherClient.id] == whiteboard:

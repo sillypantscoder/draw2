@@ -60,12 +60,14 @@ class SceneObject {
 	static typeID = "[ERROR]"
 	/**
 	 * @param {number} id
+	 * @param {number} layer
 	 * @param {Object<string, any>} data
 	 */
-	constructor(id, data) {
+	constructor(id, layer, data) {
+		this.objectID = id
+		this.layer = layer
 		this.data = data
 		this._originalData = structuredClone(this.data)
-		this.objectID = id
 		/** @type {number | null} */
 		this.editedTime = null;
 		this.verified = false;
@@ -78,19 +80,21 @@ class SceneObject {
 	 * @param {Viewport} viewport
 	 * @param {CanvasRenderingContext2D} canvas
 	 * @param {boolean} selected
+	 * @param {boolean} onAnotherLayer
 	 */
-	draw(viewport, canvas, selected) {}
+	draw(viewport, canvas, selected, onAnotherLayer) {}
 	remove() {}
 	/**
 	 * Creates an object given its type ID, object ID, and data. Does not add the object to the screen.
+	 * @param {number} objectID
+	 * @param {number} layer
 	 * @param {String} typeID
 	 * @param {Object<string, any>} data
-	 * @param {number} id
 	 * @returns {SceneObject}
 	 */
-	static createFromDataAndID(typeID, data, id) {
+	static createFromDataAndID(objectID, layer, typeID, data) {
 		var objClass = objectTypes[typeID]
-		var o = new objClass(id, data)
+		var o = new objClass(objectID, layer, data)
 		return o
 	}
 	static generateObjectID() {
@@ -133,10 +137,11 @@ class DrawingObject extends SceneObject {
 	static typeID = "drawing"
 	/**
 	 * @param {number} id
+	 * @param {number} layer
 	 * @param {Object<string, any>} data
 	 */
-	constructor(id, data) {
-		super(id, data)
+	constructor(id, layer, data) {
+		super(id, layer, data)
 		/** @type {{ x: number, y: number }[]} */
 		this.path = data.d
 		this.color = data.color
@@ -149,12 +154,13 @@ class DrawingObject extends SceneObject {
 	 * @param {Viewport} viewport
 	 * @param {CanvasRenderingContext2D} canvas
 	 * @param {boolean} selected
+	 * @param {boolean} onAnotherLayer
 	 */
-	draw(viewport, canvas, selected) {
+	draw(viewport, canvas, selected, onAnotherLayer) {
 		canvas.fillStyle = "none"
 		canvas.strokeStyle = selected ? "blue" : this.color
 		canvas.lineWidth = selected ? 8 : 5
-		canvas.globalAlpha = this.verified ? 1 : 0.5
+		canvas.globalAlpha = (this.verified ? 1 : 0.5) * (onAnotherLayer ? 0.25 : 1)
 		// Draw lines
 		canvas.beginPath()
 		let drawPos = viewport.getScreenPosFromStagePos(this.path[0].x, this.path[0].y); canvas.moveTo(drawPos.x, drawPos.y);
@@ -223,10 +229,11 @@ class TextObject extends SceneObject {
 	static typeID = "text"
 	/**
 	 * @param {number} id
+	 * @param {number} layer
 	 * @param {Object<string, any>} data
 	 */
-	constructor(id, data) {
-		super(id, data)
+	constructor(id, layer, data) {
+		super(id, layer, data)
 		/** @type {{ x: number, y: number }} */
 		this.pos = data.pos
 		/** @type {string} */
@@ -274,9 +281,11 @@ class TextObject extends SceneObject {
 		document.querySelector(".mainContainer")?.appendChild(this.elm)
 	}
 	verify() {
+		super.verify()
 		this.elm.removeAttribute("class")
 	}
 	unverify() {
+		super.unverify()
 		this.elm.setAttribute("class", "unverified")
 	}
 	reload() {
@@ -290,8 +299,9 @@ class TextObject extends SceneObject {
 	 * @param {Viewport} viewport
 	 * @param {CanvasRenderingContext2D} canvas
 	 * @param {boolean} selected
+	 * @param {boolean} onAnotherLayer
 	 */
-	draw(viewport, canvas, selected) {
+	draw(viewport, canvas, selected, onAnotherLayer) {
 		// No canvas drawing is needed
 		this.elm.setAttribute("style", `top: ${(this.pos.y * viewport.zoom) + viewport.y}px; left: ${(this.pos.x * viewport.zoom) + viewport.x}px; width: ${this.elm.dataset.width}; height: ${this.elm.dataset.height}; transform: scale(${viewport.zoom}); transform-origin: 0px 0px;`)
 		// Focus
@@ -299,6 +309,12 @@ class TextObject extends SceneObject {
 			this.elm.classList.add("focus-shadow")
 		} else {
 			this.elm.classList.remove("focus-shadow")
+		}
+		// Layer
+		if (onAnotherLayer) {
+			this.elm.classList.add("another-layer")
+		} else {
+			this.elm.classList.remove("another-layer")
 		}
 	}
 	remove() {
@@ -465,7 +481,7 @@ class Renderer {
 		mainCanvasCtx.lineJoin = "round"
 		for (var i = 0; i < this.whiteboard.objects.length; i++) {
 			var obj = this.whiteboard.objects[i];
-			obj.draw(this.whiteboard.viewport, mainCanvasCtx, this.whiteboard.selection?.objects.includes(obj) ?? false)
+			obj.draw(this.whiteboard.viewport, mainCanvasCtx, this.whiteboard.selection?.objects.includes(obj) ?? false, this.whiteboard.strictLayer && this.whiteboard.selectedLayer != obj.layer)
 		}
 		// Render selection
 		if (this.whiteboard.selection != null) {
@@ -558,7 +574,7 @@ class Connection {
 	 * @param {MessageEvent<string>} msgEvent
 	 */
 	onmessage(msgEvent) {
-		/** @type {{ type: "error", data: string } | { type: "create_object", objectID: number, typeID: string, data: Object } | { type: "remove_object", objectID: number } | { type: "edit_object", objectID: number, newData: Object }} */
+		/** @type {{ type: "error", data: string } | { type: "create_object", objectID: number, layer: number, typeID: string, data: Object } | { type: "remove_object", objectID: number } | { type: "edit_object", objectID: number, newData: Object }} */
 		var message = JSON.parse(msgEvent.data)
 		if (message.type == "error") {
 			console.error("[Server]", message.data)
@@ -567,7 +583,7 @@ class Connection {
 			var obj = this.whiteboard.findObjectSafe(message.objectID)
 			// Create new object?
 			if (obj == undefined) {
-				obj = SceneObject.createFromDataAndID(message.typeID, message.data, message.objectID)
+				obj = SceneObject.createFromDataAndID(message.objectID, message.layer, message.typeID, message.data)
 				this.whiteboard.add(obj)
 			}
 			// Verify object!
@@ -596,14 +612,16 @@ class Connection {
 		}
 	}
 	/**
-	 * @param {string} typeID
 	 * @param {number} objectID
+	 * @param {number} layer
+	 * @param {string} typeID
 	 * @param {Object} data
 	 */
-	createObject(typeID, objectID, data) {
+	createObject(objectID, layer, typeID, data) {
 		this.webSocket.send(JSON.stringify({
 			action: "create_object",
 			objectID,
+			layer,
 			typeID,
 			data
 		}))
@@ -634,6 +652,8 @@ class Whiteboard {
 		this.viewport = new Viewport()
 		/** @type {SceneObject[]} */
 		this.objects = []
+		this.selectedLayer = 0;
+		this.strictLayer = true;
 		/** @type {{ objects: SceneObject[], originalBoundingBox: { x: number, y: number, w: number, h: number }, boundingBox: { x: number, y: number, w: number, h: number }, handles: Handle[] } | null} */
 		this.selection = null
 		this.connection = new Connection(this)
@@ -661,7 +681,7 @@ class Whiteboard {
 				// Delete selection
 				if (this.selection != null) {
 					this.doAction(new USIEraseObjects(this, this.selection.objects.map((v) => ({
-						typeID: v.getTypeID(), objectID: v.objectID, data: v.data
+						layer: this.selectedLayer, typeID: v.getTypeID(), objectID: v.objectID, data: v.data
 					}))));
 				}
 				this.selection = null;
@@ -710,17 +730,6 @@ class Whiteboard {
 			}
 		}
 		return undefined;
-	}
-	/** @param {{ x: number, y: number }} pos */
-	eraseAtPoint(pos) {
-		var o = [...this.objects]
-		for (var i = 0; i < o.length; i++) {
-			if (o[i].verified && o[i].collidepoint(this.viewport, pos)) {
-				this.doAction(new USIEraseObjects(this, [{
-					typeID: o[i].getTypeID(), objectID: o[i].objectID, data: o[i].data
-				}]))
-			}
-		}
 	}
 	updateSelection() {
 		const _viewport = this.viewport;
@@ -1037,8 +1046,9 @@ class DrawTouchMode extends TouchMode {
 	 */
 	onEnd(previousX, previousY) {
 		// Add drawing to screen
-		if (this.points.length > 6) {
+		if (this.points.length > 4) {
 			this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
+				layer: this.touch.whiteboard.selectedLayer,
 				typeID: "drawing",
 				objectID: SceneObject.generateObjectID(),
 				data: {
@@ -1073,6 +1083,7 @@ class TextTouchMode extends TouchMode {
 	 */
 	onEnd(previousX, previousY) {
 		this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
+			layer: this.touch.whiteboard.selectedLayer,
 			typeID: "text",
 			objectID: SceneObject.generateObjectID(),
 			data: {
@@ -1187,11 +1198,14 @@ class SelectTouchMode extends TouchMode {
 		if (this.touch.whiteboard.shiftKeyDown && this.touch.whiteboard.selection != null) selectedItems.push(...this.touch.whiteboard.selection.objects)
 		// Check all objects...
 		for (var i = 0; i < this.touch.whiteboard.objects.length; i++) {
+			var obj = this.touch.whiteboard.objects[i];
 			// ...except already selected ones
-			if (selectedItems.includes(this.touch.whiteboard.objects[i])) continue;
+			if (selectedItems.includes(obj)) continue;
+			// ...except objects on another layer
+			if (this.touch.whiteboard.strictLayer && obj.layer != this.touch.whiteboard.selectedLayer) continue;
 			// Check if the object collides with the selection rectangle
-			if (this.touch.whiteboard.objects[i].colliderect(this.touch.whiteboard.viewport, rectPos, rectSize)) {
-				selectedItems.push(this.touch.whiteboard.objects[i])
+			if (obj.colliderect(this.touch.whiteboard.viewport, rectPos, rectSize)) {
+				selectedItems.push(obj)
 			}
 		}
 		// Update whiteboard selection value
@@ -1209,7 +1223,18 @@ class EraseTouchMode extends TouchMode {
 	 */
 	constructor(touch) {
 		super(touch)
-		this.touch.whiteboard.eraseAtPoint(this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y))
+		this.eraseAtPoint(this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y))
+	}
+	/** @param {{ x: number; y: number; }} pos */
+	eraseAtPoint(pos) {
+		var o = [...this.touch.whiteboard.objects]
+		for (var i = 0; i < o.length; i++) {
+			if (o[i].verified && (o[i].layer == this.touch.whiteboard.selectedLayer || !this.touch.whiteboard.strictLayer) && o[i].collidepoint(this.touch.whiteboard.viewport, pos)) {
+				this.touch.whiteboard.doAction(new USIEraseObjects(this.touch.whiteboard, [{
+					layer: this.touch.whiteboard.selectedLayer, typeID: o[i].getTypeID(), objectID: o[i].objectID, data: o[i].data
+				}]))
+			}
+		}
 	}
 	/**
 	 * @param {number} previousX
@@ -1218,7 +1243,7 @@ class EraseTouchMode extends TouchMode {
 	 * @param {number} newY
 	 */
 	onMove(previousX, previousY, newX, newY) {
-		this.touch.whiteboard.eraseAtPoint(this.touch.whiteboard.viewport.getStagePosFromScreenPos(this.touch.x, this.touch.y))
+		this.eraseAtPoint(this.touch.whiteboard.viewport.getStagePosFromScreenPos(this.touch.x, this.touch.y))
 	}
 	toString() {
 		return `EraseTouchMode {}`
@@ -1368,25 +1393,25 @@ class TouchHandler {
 			e.preventDefault();
 			_this.handleTouches(e.touches)
 			return false
-		}, false);
+		}, true);
 		mainContainer.addEventListener("touchmove", (e) => {
 			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
 			e.preventDefault();
 			_this.handleTouches(e.touches)
 			return false
-		}, false);
+		}, true);
 		mainContainer.addEventListener("touchcancel", (e) => {
 			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
 			e.preventDefault();
 			_this.handleTouches(e.touches)
 			return false
-		}, false);
+		}, true);
 		mainContainer.addEventListener("touchend", (e) => {
 			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
 			e.preventDefault();
 			_this.handleTouches(e.touches)
 			return false
-		}, false);
+		}, true);
 	}
 }
 
@@ -1412,13 +1437,13 @@ class DummyUndoStackItem extends UndoStackItem {
 class USICreateObjects extends UndoStackItem {
 	/**
 	 * @param {Whiteboard} whiteboard
-	 * @param {{ typeID: string, objectID: number, data: Object }[]} objects
+	 * @param {{ layer: number, typeID: string, objectID: number, data: Object }[]} objects
 	 */
 	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
 	do() {
 		for (var o of this.objects) {
-			this.whiteboard.add(SceneObject.createFromDataAndID(o.typeID, o.data, o.objectID));
-			this.whiteboard.connection.createObject(o.typeID, o.objectID, o.data);
+			this.whiteboard.add(SceneObject.createFromDataAndID(o.objectID, this.whiteboard.selectedLayer, o.typeID, o.data));
+			this.whiteboard.connection.createObject(o.objectID, o.layer, o.typeID, o.data);
 		}
 	}
 	invert() { return new USIEraseObjects(this.whiteboard, [...this.objects]) }
@@ -1426,7 +1451,7 @@ class USICreateObjects extends UndoStackItem {
 class USIEraseObjects extends UndoStackItem {
 	/**
 	 * @param {Whiteboard} whiteboard
-	 * @param {{ typeID: string, objectID: number, data: Object }[]} objects
+	 * @param {{ layer: number, typeID: string, objectID: number, data: Object }[]} objects
 	 */
 	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
 	do() {

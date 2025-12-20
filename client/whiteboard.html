@@ -39,6 +39,13 @@ textarea {
 textarea.unverified {
 	opacity: 0.5;
 }
+textarea.another-layer {
+	opacity: 0.25;
+	pointer-events: none;
+}
+textarea.unverified.another-layer {
+	opacity: 0.125;
+}
 .focus-shadow {
 	box-shadow: 0em 0.3em 1em 0em blue;
 	color: blue;
@@ -111,11 +118,12 @@ textarea.unverified {
 			</div>
 			<!-- <div class="menu-button" data-mode="Settings"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><rect x="8" y="2" width="4" height="16" fill="white" /><rect x="8" y="2" width="4" height="16" transform="rotate(60)" transform-origin="center" fill="white" /><rect x="8" y="2" width="4" height="16" transform="rotate(120)" transform-origin="center" fill="white" /><circle cx="10" cy="10" r="6" fill="white" /><circle cx="10" cy="10" r="3" fill="black" /></svg></div> -->
 		</div>
-		<div class="menu" style="bottom: 12em; padding: 1em;">
-			<div style="color: white;">Mode: <b id="mode-output">Draw</b></div>
+		<div class="menu" style="left: 8em; padding: 1em; color: white;">
+			<div>Mode: <b id="mode-output">Draw</b></div>
+			<div><input type="checkbox" checked style="margin-left: 0;" oninput="whiteboard.strictLayer = event.target.checked" id="is_strict_layer_checkbox"><label for="is_strict_layer_checkbox">Layer: </label><button onclick="whiteboard.selectedLayer -= 1; event.target.nextElementSibling.value = whiteboard.selectedLayer;">&lt;</button><input type="number" value="0" min="-10" max="10" style="width: 2em;" oninput="whiteboard.selectedLayer = Math.round(Number(event.target.value))"><button onclick="whiteboard.selectedLayer += 1; event.target.previousElementSibling.value = whiteboard.selectedLayer;">&gt;</button></div>
 			<div><button onclick="whiteboard.undo()">Undo</button><button onclick="whiteboard.redo()">Redo</button></div>
 		</div>
-		<div class="menu" style="left: 8em; padding: 1em; color: white;" id="drawmode">
+		<div class="menu" style="left: 8em; bottom: 6.75em; padding: 1em; color: white;" id="drawmode">
 			<div>Drawing Mode: <select oninput="selectedDrawingMode = event.target.value; event.target.blur()">
 				<option selected>Normal</option>
 				<option>Line</option>
