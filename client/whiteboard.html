@@ -59,6 +59,7 @@ textarea.unverified.another-layer {
 	border-radius: 1em;
 	overflow: hidden;
 	background: black;
+	color: white;
 	padding: 0.5em;
 	transition: opacity 0.25s ease-in-out, transform 0.25s ease-in-out;
 	opacity: 1;
@@ -77,10 +78,37 @@ textarea.unverified.another-layer {
 .menu-option-selected {
 	filter: invert();
 }
-.menu#drawmode.hidden, .menu.selection-window:not(.active) {
+.menu#drawmode.hidden, .menu.selection-window:not(.active), .modal .menu.hidden {
 	opacity: 0;
 	transform: scale(0.9);
 	pointer-events: none;
+}
+
+.modal {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	background: #0008;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	transition: background 0.25s linear;
+}
+.modal:has( > .hidden) {
+	background: transparent;
+	pointer-events: none;
+}
+.modal .menu {
+	position: relative;
+	/* different menu styles: */
+	font-size: 2.5vmax;
+	padding: 1em;
+	background: white;
+	color: black;
+	border: 0.25em solid red;
+	text-align: right;
 }
 
 .selection-window {
@@ -118,12 +146,12 @@ textarea.unverified.another-layer {
 			</div>
 			<!-- <div class="menu-button" data-mode="Settings"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><rect x="8" y="2" width="4" height="16" fill="white" /><rect x="8" y="2" width="4" height="16" transform="rotate(60)" transform-origin="center" fill="white" /><rect x="8" y="2" width="4" height="16" transform="rotate(120)" transform-origin="center" fill="white" /><circle cx="10" cy="10" r="6" fill="white" /><circle cx="10" cy="10" r="3" fill="black" /></svg></div> -->
 		</div>
-		<div class="menu" style="left: 8em; padding: 1em; color: white;">
+		<div class="menu" style="left: 8em; padding: 1em;">
 			<div>Mode: <b id="mode-output">Draw</b></div>
 			<div><input type="checkbox" checked style="margin-left: 0;" oninput="whiteboard.strictLayer = event.target.checked" id="is_strict_layer_checkbox"><label for="is_strict_layer_checkbox">Layer: </label><button onclick="whiteboard.selectedLayer -= 1; event.target.nextElementSibling.value = whiteboard.selectedLayer;">&lt;</button><input type="number" value="0" min="-10" max="10" style="width: 2em;" oninput="whiteboard.selectedLayer = Math.round(Number(event.target.value))"><button onclick="whiteboard.selectedLayer += 1; event.target.previousElementSibling.value = whiteboard.selectedLayer;">&gt;</button></div>
 			<div><button onclick="whiteboard.undo()">Undo</button><button onclick="whiteboard.redo()">Redo</button></div>
 		</div>
-		<div class="menu" style="left: 8em; bottom: 6.75em; padding: 1em; color: white;" id="drawmode">
+		<div class="menu" style="left: 8em; bottom: 6.75em; padding: 1em;" id="drawmode">
 			<div>Drawing Mode: <select oninput="selectedDrawingMode = event.target.value; event.target.blur()">
 				<option selected>Normal</option>
 				<option>Line</option>
@@ -149,9 +177,15 @@ textarea.unverified.another-layer {
 			</select></div>
 		</div>
 		<div class="menu selection-window">
-			<div style="color: white;"><b id="selection-number">0</b> item<span id="selection-s">s</span> selected</div>
+			<div><b id="selection-number">0</b> item<span id="selection-s">s</span> selected</div>
 			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))">De-select</button></div>
 			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace' }))">Delete</button></div>
+		</div>
+		<div class="modal">
+			<div class="menu hidden" id="lost-connection-menu">
+				<div>Lost connection with the server!</div>
+				<div><button style="font-size: 0.75em; margin: 0; margin-top: 1em; border: none; border-radius: 0.25em; background: blue; padding: 0.5em; color: white; font-weight: bold;" onclick="whiteboard.connection = new Connection(whiteboard, false);">Reconnect</button></div>
+			</div>
 		</div>
 		<script src="/utils.js"></script>
 		<script src="/whiteboard.js"></script>

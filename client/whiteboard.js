@@ -556,17 +556,21 @@ class Renderer {
 	}
 }
 class Connection {
-	/** @param {Whiteboard} whiteboard */
-	constructor(whiteboard) {
+	/**
+	 * @param {Whiteboard} whiteboard
+	 * @param {boolean} first
+	 */
+	constructor(whiteboard, first) {
 		this.whiteboard = whiteboard;
 		// Create websocket
 		var ws = new WebSocket("ws://" + location.hostname + ":8062/")
 		this.webSocket = ws
 		ws.addEventListener("open", () => {
-			ws.send(location.pathname.split("/").at(-2) ?? "ERROR")
+			ws.send((first ? "1" : "0") + (location.pathname.split("/").at(-2) ?? "ERROR"))
+			document.querySelector("#lost-connection-menu")?.classList.add("hidden")
 		})
 		ws.addEventListener("close", () => {
-			alert("Lost connection with the server!")
+			document.querySelector("#lost-connection-menu")?.classList.remove("hidden")
 		})
 		ws.addEventListener("message", this.onmessage.bind(this))
 	}
@@ -656,7 +660,7 @@ class Whiteboard {
 		this.strictLayer = true;
 		/** @type {{ objects: SceneObject[], originalBoundingBox: { x: number, y: number, w: number, h: number }, boundingBox: { x: number, y: number, w: number, h: number }, handles: Handle[] } | null} */
 		this.selection = null
-		this.connection = new Connection(this)
+		this.connection = new Connection(this, true)
 		this.renderer = new Renderer(this)
 		// Undo stack objects
 		this.shiftKeyDown = false
