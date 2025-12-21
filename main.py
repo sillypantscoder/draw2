@@ -129,6 +129,36 @@ class Draw2Server(HTTPServer):
 				},
 				"content": read_file("client/whiteboard.js")
 			}
+		elif path.startswith("/whiteboard_data/image/"):
+			try:
+				whiteboard = self.getWhiteboard(path.split("/")[3])
+			except:
+				return {
+					"status": 404,
+					"headers": {},
+					"content": b"Whiteboard Not Found"
+				}
+			try:
+				obj = whiteboard.objects[path.split("/")[4]]
+			except:
+				return {
+					"status": 404,
+					"headers": {},
+					"content": b"Object Not Found"
+				}
+			if "imageData" not in obj["data"].keys():
+				return {
+					"status": 404,
+					"headers": {},
+					"content": b"This object is not an image"
+				}
+			return {
+				"status": 200,
+				"headers": {
+					"Content-Type": "image/webp"
+				},
+				"content": base64.b64decode(obj["data"]["imageData"])
+			}
 		# 404 page
 		return {
 			"status": 404,
@@ -162,11 +192,9 @@ class Draw2Server(HTTPServer):
 				"content": b""
 			}
 		elif path == "/create_image":
-			whiteboard = None
-			for w in self.whiteboards:
-				if w.id == query.get("whiteboard"):
-					whiteboard = w
-			if whiteboard == None:
+			try:
+				whiteboard = self.getWhiteboard(query.get("whiteboard"))
+			except:
 				return {
 					"status": 400,
 					"headers": {},
@@ -186,13 +214,15 @@ class Draw2Server(HTTPServer):
 			objectData: dict[str, typing.Any] = {
 				"x": (50 - float(query.get("x"))) / scale,
 				"y": (50 - float(query.get("y"))) / scale,
-				"scale": 1 / scale,
-				"imageData": base64.b64encode(imageData).decode("UTF-8")
+				"scale": 1 / scale
 			}
+			objectDataSaved: dict[str, typing.Any] = {}
+			objectDataSaved.update(objectData)
+			objectDataSaved["imageData"] = base64.b64encode(imageData).decode("UTF-8")
 			whiteboard.objects[str(objectID)] = {
 				"typeID": "image",
 				"layer": int(query.get("layer", "0")),
-				"data": objectData
+				"data": objectDataSaved
 			}
 			# Inform clients
 			for client in self.ws_server.clients:
@@ -228,12 +258,15 @@ class Draw2Server(HTTPServer):
 			# Get all objects
 			if message[0] == "1":
 				for o in whiteboard.objects:
+					objectData: dict[str, typing.Any] = {}
+					objectData.update(whiteboard.objects[o]["data"])
+					if "imageData" in objectData.keys(): del objectData["imageData"] # don't send image data through websocket
 					c.sendMessage(json.dumps({
 						"type": "create_object",
 						"objectID": int(o),
 						"layer": whiteboard.objects[o]["layer"],
 						"typeID": whiteboard.objects[o]["typeID"],
-						"data": whiteboard.objects[o]["data"]
+						"data": objectData
 					}))
 			return
 		# Load JSON message

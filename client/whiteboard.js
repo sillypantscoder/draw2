@@ -410,9 +410,6 @@ class ImageObject extends SceneObject {
 		this.pos = { x: data.x, y: data.y }
 		/** @type {number} */
 		this.scale = data.scale
-		/** @type {string} */
-		this.imageData = data.imageData
-		delete data.imageData
 		/** @type {HTMLImageElement | null} */
 		this.loadedImage = null
 		this.reload()
@@ -423,7 +420,7 @@ class ImageObject extends SceneObject {
 		// Load Image
 		/** @type {HTMLImageElement} */
 		var image = new Image()
-		image.src = "data:image/webp;base64," + this.imageData
+		image.src = "/whiteboard_data/image/" + location.pathname.split("/").at(-2) + "/" + this.objectID
 		image.onload = (() => {
 			this.loadedImage = image
 		}).bind(this)
@@ -435,12 +432,12 @@ class ImageObject extends SceneObject {
 	 * @param {boolean} onAnotherLayer
 	 */
 	draw(viewport, canvas, selected, onAnotherLayer) {
+		// Find position
+		var imagePos = viewport.getScreenPosFromStagePos(this.pos.x, this.pos.y)
+		var width = (this.loadedImage?.width ?? 50) * this.scale * viewport.zoom
+		var height = (this.loadedImage?.height ?? 50) * this.scale * viewport.zoom
 		// Draw image onto canvas
 		if (this.loadedImage != null) {
-			// Find position
-			var imagePos = viewport.getScreenPosFromStagePos(this.pos.x, this.pos.y)
-			var width = this.loadedImage.width * this.scale * viewport.zoom
-			var height = this.loadedImage.height * this.scale * viewport.zoom
 			// Draw image
 			canvas.globalAlpha = (this.verified ? 1 : 0.5) * (onAnotherLayer ? 0.25 : 1)
 			canvas.drawImage(this.loadedImage, imagePos.x, imagePos.y, width, height)
@@ -449,7 +446,7 @@ class ImageObject extends SceneObject {
 			canvas.fillStyle = "black"
 			canvas.strokeStyle = "none"
 			canvas.globalAlpha = 0.5 * (this.verified ? 1 : 0.5) * (onAnotherLayer ? 0.25 : 1)
-			canvas.fillRect(this.pos.x, this.pos.y, 50 * this.scale, 50 * this.scale)
+			canvas.fillRect(imagePos.x, imagePos.y, width, height)
 		}
 	}
 	/**
@@ -469,7 +466,8 @@ class ImageObject extends SceneObject {
 	 * @param {Line} line
 	 */
 	collideline(viewport, line) {
-		return rectangleIntersectsLine({ x: this.pos.x, y: this.pos.y, w: this.loadedImage?.width ?? 50, h: this.loadedImage?.height ?? 50 }, line)
+		var stageSize = { x: (this.loadedImage?.width ?? 50) * this.scale, y: (this.loadedImage?.height ?? 50) * this.scale }
+		return rectangleIntersectsLine({ x: this.pos.x, y: this.pos.y, w: stageSize.x, h: stageSize.y }, line)
 	}
 	/**
 	 * @param {Viewport} viewport
