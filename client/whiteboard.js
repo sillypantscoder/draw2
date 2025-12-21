@@ -216,8 +216,15 @@ class DrawingObject extends SceneObject {
 	 * @param {Rect} rect
 	 */
 	colliderect(viewport, rect) {
+		var padding = 6 / (1 + (rect.w * rect.h));
+		var checkRect = {
+			x: rect.x - (padding / viewport.zoom),
+			y: rect.y - (padding / viewport.zoom),
+			w: rect.w + (2 * padding / viewport.zoom),
+			h: rect.h + (2 * padding / viewport.zoom)
+		}
 		for (var i = 0; i < this.path.length - 1; i++) {
-			if (rectangleIntersectsLine(rect, { start: this.path[i], end: this.path[i + 1] })) {
+			if (rectangleIntersectsLine(checkRect, { start: this.path[i], end: this.path[i + 1] })) {
 				return true
 			}
 		}
@@ -1469,24 +1476,26 @@ class SelectTouchMode extends TouchMode {
 		/** @type {Rect} */
 		var rect = { x, y, w: width, h: height }
 		// === Select items! ===
-		var selectedItems = []
+		var selectedItems = new Set()
 		// Keep previously selected items if shift key is pressed
-		if (this.touch.whiteboard.shiftKeyDown && this.touch.whiteboard.selection != null) selectedItems.push(...this.touch.whiteboard.selection.objects)
+		if (this.touch.whiteboard.shiftKeyDown && this.touch.whiteboard.selection != null) {
+			this.touch.whiteboard.selection.objects.forEach((v) => selectedItems.add(v))
+		}
 		// Check all objects...
 		for (var i = 0; i < this.touch.whiteboard.objects.length; i++) {
 			var obj = this.touch.whiteboard.objects[i];
-			// ...except already selected ones
-			if (selectedItems.includes(obj)) continue;
 			// ...except objects on another layer
 			if (this.touch.whiteboard.strictLayer && obj.layer != this.touch.whiteboard.selectedLayer) continue;
 			// Check if the object collides with the selection rectangle
 			if (obj.colliderect(this.touch.whiteboard.viewport, rect)) {
-				selectedItems.push(obj)
+				// Toggle the object selection
+				if (selectedItems.has(obj)) selectedItems.delete(obj)
+				else selectedItems.add(obj)
 			}
 		}
 		// Update whiteboard selection value
-		if (selectedItems.length == 0) this.touch.whiteboard.selection = null;
-		else this.touch.whiteboard.selection = { objects: selectedItems, originalBoundingBox: { x: 0, y: 0, w: 0, h: 0 }, boundingBox: { x: 0, y: 0, w: 0, h: 0 }, handles: [] }
+		if (selectedItems.size == 0) this.touch.whiteboard.selection = null;
+		else this.touch.whiteboard.selection = { objects: [...selectedItems], originalBoundingBox: { x: 0, y: 0, w: 0, h: 0 }, boundingBox: { x: 0, y: 0, w: 0, h: 0 }, handles: [] }
 		this.touch.whiteboard.updateSelection() // `originalBoundingBox`, `boundingBox` and `handles` will be set here
 	}
 	toString() {
