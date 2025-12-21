@@ -137,21 +137,21 @@ textarea.unverified.another-layer {
 				<div class="menu-option menu-option-selected" data-mode="Draw"><svg viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><path d="M 13 2 L 18 7 L 7 18 L 2 18 L 2 13 Z M 13 4 L 4 13 L 7 16 L 16 7 Z" fill="white" /></svg></div>
 			</div>
 			<div>
+				<div class="menu-option" data-mode="Erase"><svg viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><path d="M 13 2 L 18 7 L 7 18 L 2 13 Z M 10 7 L 13 10 L 16 7 L 13 4 Z" fill="white" /></svg></div>
 				<div class="menu-option" data-mode="Select"><svg viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><path d="M 2 2 L 8 2 L 8 4 L 4 4 L 4 7 L 2 7 Z M 12 2 L 18 2 L 18 7 L 16 7 L 16 4 L 12 4 Z M 16 12 L 18 12 L 18 18 L 12 18 L 12 16 L 16 16 Z M 8 16 L 8 18 L 2 18 L 2 12 L 4 12 L 4 16 Z" fill="white" /></svg></div>
-				<div class="menu-option" data-mode="Text"><svg viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><path d="M 2 2 L 18 2 L 18 6 L 12 6 L 12 18 L 8 18 L 8 6 L 2 6 Z" fill="white" /></svg></div>
 			</div>
 			<div>
 				<div class="menu-option" data-mode="Quit"><svg viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><path d="M 2 4 L 4 2 L 18 16 L 16 18 Z M 2 16 L 16 2 L 18 4 L 4 18 Z" fill="white" /></svg></div>
-				<div class="menu-option" data-mode="Erase"><svg viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><path d="M 13 2 L 18 7 L 7 18 L 2 13 Z M 10 7 L 13 10 L 16 7 L 13 4 Z" fill="white" /></svg></div>
+				<div class="menu-option" data-mode="Text"><svg viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><path d="M 2 2 L 18 2 L 18 6 L 12 6 L 12 18 L 8 18 L 8 6 L 2 6 Z" fill="white" /></svg></div>
 			</div>
 			<!-- <div class="menu-button" data-mode="Settings"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><rect x="8" y="2" width="4" height="16" fill="white" /><rect x="8" y="2" width="4" height="16" transform="rotate(60)" transform-origin="center" fill="white" /><rect x="8" y="2" width="4" height="16" transform="rotate(120)" transform-origin="center" fill="white" /><circle cx="10" cy="10" r="6" fill="white" /><circle cx="10" cy="10" r="3" fill="black" /></svg></div> -->
 		</div>
 		<div class="menu" style="left: 8em; padding: 1em;">
 			<div>Mode: <b id="mode-output">Draw</b></div>
 			<div><input type="checkbox" checked style="margin-left: 0;" oninput="whiteboard.strictLayer = event.target.checked" id="is_strict_layer_checkbox"><label for="is_strict_layer_checkbox">Layer: </label><!--
-				--><button onclick="whiteboard.selectedLayer = Math.max(whiteboard.selectedLayer - 1, -1); event.target.nextElementSibling.value = whiteboard.selectedLayer;">&lt;</button><!--
-				--><input type="number" value="0" min="-1" max="9" style="width: 2em;" oninput="whiteboard.selectedLayer = Math.round(Number(event.target.value)); whiteboard.selectedLayer = Math.max(Math.min(whiteboard.selectedLayer, 9), -1);"><!--
-				--><button onclick="whiteboard.selectedLayer = Math.min(whiteboard.selectedLayer + 1, 9); event.target.previousElementSibling.value = whiteboard.selectedLayer;">&gt;</button></div>
+				--><button onclick="whiteboard.updateLayer(-1, true)">&lt;</button><!--
+				--><input type="number" value="0" min="-1" max="9" style="width: 2em;" id="layer-display" oninput="whiteboard.updateLayer(event.target.value, false)"><!--
+				--><button onclick="whiteboard.updateLayer(1, true)">&gt;</button></div>
 			<div><button onclick="whiteboard.undo()">Undo</button><button onclick="whiteboard.redo()">Redo</button></div>
 		</div>
 		<div class="menu" style="left: 8em; bottom: 6.75em; padding: 1em;" id="drawmode">

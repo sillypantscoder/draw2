@@ -33,6 +33,13 @@ function getCurrentMode() {
 	// @ts-ignore
 	return document.querySelector(".menu-option-selected").dataset.mode
 }
+/** @param {string} mode */
+function setCurrentMode(mode) {
+	var button = document.querySelector(`.menu-option[data-mode="${mode}"]`);
+	if (button == null) throw new Error("Not a valid mode")
+	if (! (button instanceof HTMLElement)) throw new Error(`Element for mode "${mode}" is not HTML`)
+	button.click()
+}
 
 (function updateViewPos() {
 	mainCanvas.width = window.innerWidth
@@ -753,26 +760,45 @@ class Whiteboard {
 	addEventListeners() {
 		window.addEventListener("keydown", ((/** @type {KeyboardEvent} */ e) => {
 			if (e.key == "Shift") this.shiftKeyDown = true
-			if (e.key == "Escape") {
-				// Remove selection
-				this.selection = null;
-				this.updateSelection();
-			}
-			if (e.key == "Backspace" || e.key == "Delete") {
-				// Delete selection
-				if (this.selection != null) {
+			if (document.activeElement instanceof HTMLTextAreaElement) {
+				// Shortcut keys while editing a text box:
+				var focusedElement = document.activeElement
+				if (e.key == "Escape") {
+					// Un-focus textarea
+					focusedElement.blur();
+				}
+			} else {
+				// Generic shortcut keys:
+				if (e.key == "Escape") {
+					// Remove selection
+					this.selection = null;
+					this.updateSelection();
+				}
+				if (this.selection != null && (e.key == "Backspace" || e.key == "Delete" || e.key == "a")) {
+					// Delete selection
 					this.doAction(new USIEraseObjects(this, this.selection.objects.map((v) => ({
 						layer: this.selectedLayer, typeID: v.getTypeID(), objectID: v.objectID, data: v.data
 					}))));
+					this.selection = null;
+					this.updateSelection();
+					// Erase shortcut (from Select) leads to Draw
+					if (e.key == "a") setCurrentMode("Draw")
+				} else if (e.key == "a") setCurrentMode("Erase")
+				// Mode shortcuts
+				if (e.key == "q") setCurrentMode("Move")
+				if (e.key == "w") setCurrentMode("Draw")
+				if (e.key == "s") setCurrentMode("Select")
+				if (e.key == "x") setCurrentMode("Text")
+				// Layer shortcuts
+				if (e.key == "ArrowLeft") this.updateLayer(-1, true)
+				if (e.key == "ArrowRight") this.updateLayer(1, true)
+				// Undo/redo
+				if (e.ctrlKey) {
+					if (e.key == "z") this.undo()
+					if (e.key == "Z") this.redo()
+					if (e.key == "y") this.redo()
+					if (e.key == "Y") this.undo()
 				}
-				this.selection = null;
-				this.updateSelection();
-			}
-			if (e.ctrlKey) {
-				if (e.key == "z") this.undo()
-				if (e.key == "Z") this.redo()
-				if (e.key == "y") this.redo()
-				if (e.key == "Y") this.undo()
 			}
 		}).bind(this))
 		window.addEventListener("keyup", ((/** @type {KeyboardEvent} */ e) => {
@@ -849,6 +875,18 @@ class Whiteboard {
 			new LinearMovementHandle(this.viewport, this.selection),
 			...this.selection.objects[0].getHandles(this.viewport, this.selection.boundingBox)
 		]; else return [new LinearMovementHandle(this.viewport, this.selection)]
+	}
+	/**
+	 * @param {any} amount
+	 * @param {boolean} addAndUpdate
+	 */
+	updateLayer(amount, addAndUpdate) {
+		var amountFixed = Math.round(Number(amount))
+		if (addAndUpdate) amountFixed += this.selectedLayer
+		this.selectedLayer = Math.max(Math.min(amountFixed, 9), -1);
+		// Update display
+		var layerDisplay = document.querySelector("#layer-display")
+		if (addAndUpdate && layerDisplay instanceof HTMLInputElement) layerDisplay.valueAsNumber = whiteboard.selectedLayer;
 	}
 	/**
 	 * @param {UndoStackItem} item
@@ -1184,7 +1222,7 @@ class TextTouchMode extends TouchMode {
 			data: {
 				"pos": this.touch.whiteboard.viewport.getStagePosFromScreenPos(previousX, previousY),
 				"width": 200,
-				"scale": 1 / this.touch.whiteboard.viewport.zoom,
+				"scale": 1.5 / this.touch.whiteboard.viewport.zoom,
 				"text": "Enter text here"
 			}
 		}]))
@@ -1320,9 +1358,16 @@ class EraseTouchMode extends TouchMode {
 	 */
 	constructor(touch) {
 		super(touch)
-		// // Erase around this position
-		// var touchLoc = this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y);
-		// this.eraseLine()
+		// Erase around this position
+		var touchLoc = this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y);
+		this.eraseLine({
+			start: { x: touchLoc.x - 1, y: touchLoc.y - 1 },
+			  end: { x: touchLoc.x + 1, y: touchLoc.y + 1 }
+		})
+		this.eraseLine({
+			start: { x: touchLoc.x + 1, y: touchLoc.y + 1 },
+			  end: { x: touchLoc.x - 1, y: touchLoc.y - 1 }
+		})
 	}
 	/** @param {Line} line */
 	eraseLine(line) {
@@ -1471,7 +1516,7 @@ class TouchHandler {
 		// Mouse Listeners
 		mainContainer.addEventListener("mousedown", (e) => {
 			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
-			if (e.buttons == 4 || e.buttons == 5) {
+			if (e.buttons > 1) {
 				_this.mousecancel(0)
 				this.touches.push(new TrackedTouch(_this.whiteboard, e.clientX, e.clientY, 0, _this.touches, true));
 			} else {
@@ -1487,6 +1532,10 @@ class TouchHandler {
 		});
 		mainContainer.addEventListener("mouseup", (e) => {
 			_this.mouseup(0);
+		});
+		mainContainer.addEventListener("contextmenu", (e) => {
+			e.preventDefault()
+			e.stopPropagation()
 		});
 		mainContainer.addEventListener("wheel", (e) => {
 			_this.whiteboard.viewport.zoomView({
