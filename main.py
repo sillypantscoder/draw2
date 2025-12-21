@@ -5,6 +5,7 @@ import json
 import datetime
 import os
 import random
+import base64
 
 hostName = "0.0.0.0"
 serverPort = 8060
@@ -160,6 +161,55 @@ class Draw2Server(HTTPServer):
 				"headers": {},
 				"content": b""
 			}
+		elif path == "/create_image":
+			whiteboard = None
+			for w in self.whiteboards:
+				if w.id == query.get("whiteboard"):
+					whiteboard = w
+			if whiteboard == None:
+				return {
+					"status": 400,
+					"headers": {},
+					"content": b"Whiteboard Not Found"
+				}
+			# Attempt to load image from body
+			from PIL import Image as PillowImage # type: ignore
+			import io
+			image: PillowImage.Image = PillowImage.open(io.BytesIO(body)).convert("RGBA") # type: ignore
+			convertedBuffer = io.BytesIO()
+			image.save(convertedBuffer, "WEBP") # type: ignore
+			convertedBuffer.seek(0)
+			imageData = convertedBuffer.read()
+			# Create image object
+			objectID = round(random.random() * 10000000)
+			objectData: dict[str, typing.Any] = {
+				"x": 50 - float(query.get("x")),
+				"y": 50 - float(query.get("x")),
+				"scale": 2 * float(query.get("scale")),
+				"imageData": base64.b64encode(imageData).decode("UTF-8")
+			}
+			whiteboard.objects[str(objectID)] = {
+				"typeID": "image",
+				"layer": int(query.get("layer", "0")),
+				"data": objectData
+			}
+			# Inform clients
+			for client in self.ws_server.clients:
+				if self.clientWhiteboards[client.id] == whiteboard:
+					client.sendMessage(json.dumps({
+						"type": "create_object",
+						"objectID": objectID,
+						"layer": int(query.get("layer", "0")),
+						"typeID": "image",
+						"data": objectData
+					}))
+			# Save whiteboard
+			whiteboard.saveObjectList()
+			return {
+				"status": 200,
+				"headers": {},
+				"content": b""
+			}
 		return {
 			"status": 404,
 			"headers": {},
@@ -200,6 +250,7 @@ class Draw2Server(HTTPServer):
 					otherClient.sendMessage(json.dumps({
 						"type": "create_object",
 						"objectID": int(messageData["objectID"]),
+						"layer": messageData["layer"],
 						"typeID": messageData["typeID"],
 						"data": messageData["data"]
 					}))
@@ -239,7 +290,7 @@ class Draw2Server(HTTPServer):
 			}))
 			else:
 				# Update object data
-				whiteboard.objects[o]["data"] = messageData["newData"]
+				whiteboard.objects[o]["data"].update(messageData["newData"])
 				# Inform other clients
 				for otherClient in self.ws_server.clients:
 					if self.clientWhiteboards[otherClient.id] == whiteboard:

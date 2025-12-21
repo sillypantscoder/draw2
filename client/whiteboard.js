@@ -388,7 +388,7 @@ width: ${this.width}px; height: ${this.elm.dataset.height}; transform: scale(${v
 	 * @param {Rect} boundingBox
 	 * @returns {Handle[]}
 	 */
-	getHandles(viewport, boundingBox) { return [new TextBoxWidthHandle(viewport, this, boundingBox), new TextBoxRescalingHandle(viewport, this, boundingBox)]; }
+	getHandles(viewport, boundingBox) { return [new TextBoxWidthHandle(viewport, this, boundingBox), new RescalingHandle(viewport, this, boundingBox)]; }
 	static createTextarea() {
 		var t = document.createElementNS("http://www.w3.org/1999/xhtml", "textarea")
 		if (! (t instanceof HTMLTextAreaElement)) {
@@ -397,6 +397,107 @@ width: ${this.width}px; height: ${this.elm.dataset.height}; transform: scale(${v
 		return t
 	}
 }
+class ImageObject extends SceneObject {
+	static typeID = "image"
+	/**
+	 * @param {number} id
+	 * @param {number} layer
+	 * @param {Object<string, any>} data
+	 */
+	constructor(id, layer, data) {
+		super(id, layer, data)
+		/** @type {Point} */
+		this.pos = { x: data.x, y: data.y }
+		/** @type {number} */
+		this.scale = data.scale
+		/** @type {string} */
+		this.imageData = data.imageData
+		delete data.imageData
+		/** @type {HTMLImageElement | null} */
+		this.loadedImage = null
+		this.reload()
+	}
+	reload() {
+		this.pos = { x: this.data.x, y: this.data.y }
+		this.scale = this.data.scale
+		// Load Image
+		/** @type {HTMLImageElement} */
+		var image = new Image()
+		image.src = "data:image/webp;base64," + this.imageData
+		image.onload = (() => {
+			this.loadedImage = image
+		}).bind(this)
+	}
+	/**
+	 * @param {Viewport} viewport
+	 * @param {CanvasRenderingContext2D} canvas
+	 * @param {boolean} selected
+	 * @param {boolean} onAnotherLayer
+	 */
+	draw(viewport, canvas, selected, onAnotherLayer) {
+		// Draw image onto canvas
+		if (this.loadedImage != null) {
+			// Find position
+			var imagePos = viewport.getScreenPosFromStagePos(this.pos.x, this.pos.y)
+			var width = this.loadedImage.width * this.scale * viewport.zoom
+			var height = this.loadedImage.height * this.scale * viewport.zoom
+			// Draw image
+			canvas.globalAlpha = (this.verified ? 1 : 0.5) * (onAnotherLayer ? 0.25 : 1)
+			canvas.drawImage(this.loadedImage, imagePos.x, imagePos.y, width, height)
+		} else {
+			// fallback :(
+			canvas.fillStyle = "black"
+			canvas.strokeStyle = "none"
+			canvas.globalAlpha = 0.5 * (this.verified ? 1 : 0.5) * (onAnotherLayer ? 0.25 : 1)
+			canvas.fillRect(this.pos.x, this.pos.y, 50 * this.scale, 50 * this.scale)
+		}
+	}
+	/**
+	 * @param {Viewport} viewport
+	 * @returns {Rect}
+	 */
+	getBoundingRect(viewport) {
+		return {
+			x: this.pos.x,
+			y: this.pos.y,
+			w: (this.loadedImage?.width ?? 50) * this.scale,
+			h: (this.loadedImage?.height ?? 50) * this.scale
+		}
+	}
+	/**
+	 * @param {Viewport} viewport
+	 * @param {Line} line
+	 */
+	collideline(viewport, line) {
+		return rectangleIntersectsLine({ x: this.pos.x, y: this.pos.y, w: this.loadedImage?.width ?? 50, h: this.loadedImage?.height ?? 50 }, line)
+	}
+	/**
+	 * @param {Viewport} viewport
+	 * @param {Rect} rect
+	 */
+	colliderect(viewport, rect) {
+		var stageSize = { x: (this.loadedImage?.width ?? 50) * this.scale, y: (this.loadedImage?.height ?? 50) * this.scale }
+		// stagePos = this.pos
+		return rect.x <= this.pos.x + stageSize.x && rect.x + rect.w >= this.pos.x && rect.y <= this.pos.y + stageSize.y && rect.y + rect.h >= this.pos.y
+	}
+	/**
+	 * @param {number} dx
+	 * @param {number} dy
+	 */
+	linearMove(dx, dy) {
+		this.pos.x += dx;
+		this.pos.y += dy;
+		this.data.x = this.pos.x
+		this.data.y = this.pos.y
+		super.linearMove(dx, dy);
+	}
+	/**
+	 * @param {Viewport} viewport
+	 * @param {Rect} boundingBox
+	 * @returns {Handle[]}
+	 */
+	getHandles(viewport, boundingBox) { return [new RescalingHandle(viewport, this, boundingBox)]; }
+}
 
 /** @type {Object<string, typeof SceneObject>} */
 const objectTypes = (() => {
@@ -404,7 +505,8 @@ const objectTypes = (() => {
 	var objectTypes = {};
 	for (var cls of [
 		DrawingObject,
-		TextObject
+		TextObject,
+		ImageObject
 	]) {
 		objectTypes[cls.typeID] = cls;
 	}
@@ -489,10 +591,10 @@ class TextBoxWidthHandle extends Handle {
 		this.rect.h = this.selection.elm.getBoundingClientRect().height;
 	}
 }
-class TextBoxRescalingHandle extends Handle {
+class RescalingHandle extends Handle {
 	/**
 	 * @param {Viewport} viewport
-	 * @param {TextObject} selection
+	 * @param {TextObject | ImageObject} selection
 	 * @param {Rect} boundingBox
 	 */
 	constructor(viewport, selection, boundingBox) {
@@ -514,10 +616,17 @@ class TextBoxRescalingHandle extends Handle {
 		// Move object
 		this.selection.scale *= scaleFactor;
 		this.selection.data.scale = this.selection.scale;
-		this.selection.elm.dispatchEvent(new InputEvent("input"))
-		// Move rect
-		this.rect.w = this.selection.width * this.selection.scale;
-		this.rect.h = this.selection.elm.getBoundingClientRect().height / this.viewport.zoom;
+		if (this.selection instanceof TextObject) {
+			this.selection.elm.dispatchEvent(new InputEvent("input"))
+			// Move rect
+			this.rect.w = this.selection.width * this.selection.scale;
+			this.rect.h = this.selection.elm.getBoundingClientRect().height / this.viewport.zoom;
+		} else {
+			this.selection.editedTime = Date.now()
+			// Move rect
+			this.rect.w = (this.selection.loadedImage?.width ?? 50) * this.selection.scale;
+			this.rect.h = (this.selection.loadedImage?.height ?? 50) * this.selection.scale;
+		}
 	}
 }
 
@@ -715,6 +824,14 @@ class Connection {
 		}))
 	}
 	/**
+	 * @param {File} imageData
+	 */
+	createImage(imageData) {
+		var x = new XMLHttpRequest()
+		x.open("POST", "/create_image?whiteboard=" + location.pathname.split("/").at(-2) + "&layer=" + this.whiteboard.selectedLayer + "&x=" + this.whiteboard.viewport.x + "&y=" + this.whiteboard.viewport.y + "&scale=" + this.whiteboard.viewport.zoom)
+		x.send(imageData)
+	}
+	/**
 	 * @param {number} objectID
 	 */
 	removeObject(objectID) {
@@ -807,6 +924,19 @@ class Whiteboard {
 		window.addEventListener("Custom-Switch-Tools", (() => {
 			this.selection = null
 			this.updateSelection()
+		}).bind(this))
+		window.addEventListener("paste", ((/** @type {ClipboardEvent} */ e) => {
+			if (e.clipboardData != null) {
+				for (var clipboardItem of e.clipboardData.items) {
+					// Evaluate this pasted item to see if it can be inserted
+					if (clipboardItem.kind == "file") {
+						if (clipboardItem.type.startsWith("image/")) {
+							var file = clipboardItem.getAsFile()
+							if (file) this.connection.createImage(file)
+						}
+					}
+				}
+			}
 		}).bind(this))
 		this.updateUndoButtons()
 	}
