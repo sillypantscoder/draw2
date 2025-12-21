@@ -932,31 +932,70 @@ class Whiteboard {
 		}).bind(this))
 		window.addEventListener("paste", ((/** @type {ClipboardEvent} */ e) => {
 			if (e.clipboardData != null) {
-				for (var clipboardItem of e.clipboardData.items) {
-					// Evaluate this pasted item to see if it can be inserted
-					if (clipboardItem.kind == "file") {
-						if (clipboardItem.type.startsWith("image/")) {
-							var file = clipboardItem.getAsFile()
-							if (file) this.connection.createImage(file)
-						}
-					}
-				}
+				this.loadInsertedContent([...e.clipboardData.items]);
 			}
 		}).bind(this))
+		document.body.addEventListener("dragover", (e) => {
+			// Make body into a drop target
+			e.preventDefault();
+		});
+		document.body.addEventListener("drop", (e) => {
+			e.preventDefault();
+			if (e.dataTransfer != null) {
+				this.loadInsertedContent([...e.dataTransfer.items]);
+			}
+		});
 		this.updateUndoButtons()
 	}
 	attemptPaste() {
-		navigator.clipboard.read().then((async (/** @type {ClipboardItem[]} */ items) => {
-			for (var clipboardItem of items) {
-				// Evaluate this pasted item to see if it can be inserted
-				for (var mimeType of clipboardItem.types) {
+		navigator.clipboard.read().then(this.loadInsertedContent.bind(this))
+	}
+	/** @param {(ClipboardItem | DataTransferItem)[]} content */
+	async loadInsertedContent(content) {
+		var fails = 0
+		var successes = 0
+		for (var obj of content) {
+			// Evaluate this content to see if it can be inserted
+			if (obj instanceof ClipboardItem) {
+				// If it's a ClipboardItem:
+				for (var mimeType of obj.types) {
 					if (mimeType.startsWith("image/")) {
-						var blob = await clipboardItem.getType(mimeType)
+						var blob = await obj.getType(mimeType)
 						this.connection.createImage(blob)
-					}
+						successes += 1;
+					} else fails += 1;
 				}
 			}
-		}).bind(this))
+			if (obj instanceof DataTransferItem) {
+				// If it's a DataTransferItem:
+				if (obj.kind == "file" && obj.type.startsWith("image/")) {
+						var file = obj.getAsFile()
+						if (file) this.connection.createImage(file)
+						successes += 1;
+				} else fails += 1;
+			}
+		}
+		// Create info message
+		{
+			let e = document.body.appendChild(document.createElement("div"))
+			let styles = `position: absolute; bottom: 12em; left: 0; margin: 1em; border: 0.25em solid black; background: ${successes == 0 ? "#F00" : "#080"}; padding: 1em; border-radius: 1em; font-weight: bold; color: white; transition: opacity 2s linear, transform 0.125s ease-in-out;`
+			e.setAttribute("style", styles + " opacity: 1; transform: scale(0.9);")
+			e.innerText = `${fails > 0 ? `Failed to insert ${fails} non-image item${fails == 1 ? "" : "s"}.` : ""}${fails > 0 && successes > 0 ? " " : ""}${successes > 0 ? `Inserting ${successes} image${successes == 1 ? "" : "s"}...` : ""}`
+			// Finish zoom out
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					e.setAttribute("style", styles + " opacity: 1; transform: scale(1);")
+				})
+			})
+			// Start fading
+			setTimeout(() => {
+				e.setAttribute("style", styles + " opacity: 0;")
+			}, 1000)
+			// Finish fading
+			setTimeout(() => {
+				e.remove()
+			}, 3000)
+		}
 	}
 	/** @param {SceneObject} obj */
 	add(obj) {
