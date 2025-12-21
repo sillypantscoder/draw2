@@ -39,7 +39,7 @@ function getCurrentMode() {
 	mainCanvas.height = window.innerHeight
 })();
 
-/** @param {{ x: number, y: number, w: number, h: number }[]} rects */
+/** @param {Rect[]} rects */
 function getBoundingBox(rects) {
 	var leftPos = Infinity;
 	var topPos = Infinity;
@@ -102,24 +102,23 @@ class SceneObject {
 	}
 	/**
 	 * @param {Viewport} viewport
-	 * @returns {{ x: number, y: number, w: number, h: number }}
+	 * @returns {Rect}
 	 */
 	getBoundingRect(viewport) {
 		throw new Error()
 	}
 	/**
 	 * @param {Viewport} viewport
-	 * @param {{ x: number, y: number }} pos
+	 * @param {Line} line
 	 */
-	collidepoint(viewport, pos) {
+	collideline(viewport, line) {
 		return true
 	}
 	/**
 	 * @param {Viewport} viewport
-	 * @param {{ x: number, y: number }} pos
-	 * @param {{ x: number, y: number }} size
+	 * @param {Rect} rect
 	 */
-	colliderect(viewport, pos, size) {
+	colliderect(viewport, rect) {
 		return true
 	}
 	/**
@@ -131,7 +130,7 @@ class SceneObject {
 	}
 	/**
 	 * @param {Viewport} viewport
-	 * @param {{ x: number, y: number, w: number, h: number }} boundingBox
+	 * @param {Rect} boundingBox
 	 * @returns {Handle[]}
 	 */
 	getHandles(viewport, boundingBox) { return []; }
@@ -148,7 +147,7 @@ class DrawingObject extends SceneObject {
 	 */
 	constructor(id, layer, data) {
 		super(id, layer, data)
-		/** @type {{ x: number, y: number }[]} */
+		/** @type {Point[]} */
 		this.path = data.d
 		this.color = data.color
 	}
@@ -177,7 +176,7 @@ class DrawingObject extends SceneObject {
 	}
 	/**
 	 * @param {Viewport} viewport
-	 * @returns {{ x: number, y: number, w: number, h: number }}
+	 * @returns {Rect}
 	 */
 	getBoundingRect(viewport) {
 		let minX = this.path[0].x;
@@ -195,11 +194,11 @@ class DrawingObject extends SceneObject {
 	}
 	/**
 	 * @param {Viewport} viewport
-	 * @param {{ x: number, y: number }} pos
+	 * @param {Line} line
 	 */
-	collidepoint(viewport, pos) {
+	collideline(viewport, line) {
 		for (var i = 0; i < this.path.length - 1; i++) {
-			if (distanceBetweenPointAndLineSegment(pos, this.path[i], this.path[i + 1]) < 3 / viewport.zoom) {
+			if (line_intersects_line({ start: this.path[i], end: this.path[i + 1] }, line)) {
 				return true
 			}
 		}
@@ -207,14 +206,13 @@ class DrawingObject extends SceneObject {
 	}
 	/**
 	 * @param {Viewport} viewport
-	 * @param {{ x: number, y: number }} pos
-	 * @param {{ x: number, y: number }} size
+	 * @param {Rect} rect
 	 */
-	colliderect(viewport, pos, size) {
-		for (var i = 0; i < this.path.length; i++) {
-			var px = this.path[i].x
-			var py = this.path[i].y
-			if (px >= pos.x && px <= pos.x + size.x && py >= pos.y && py <= pos.y + size.y) return true
+	colliderect(viewport, rect) {
+		for (var i = 0; i < this.path.length - 1; i++) {
+			if (rectangleIntersectsLine(rect, { start: this.path[i], end: this.path[i + 1] })) {
+				return true
+			}
 		}
 		return false;
 	}
@@ -240,7 +238,7 @@ class TextObject extends SceneObject {
 	 */
 	constructor(id, layer, data) {
 		super(id, layer, data)
-		/** @type {{ x: number, y: number }} */
+		/** @type {Point} */
 		this.pos = data.pos
 		/** @type {number} */
 		this.scale = data.scale
@@ -335,7 +333,7 @@ width: ${this.width}px; height: ${this.elm.dataset.height}; transform: scale(${v
 	}
 	/**
 	 * @param {Viewport} viewport
-	 * @returns {{ x: number, y: number, w: number, h: number }}
+	 * @returns {Rect}
 	 */
 	getBoundingRect(viewport) {
 		var elementRect = this.elm.getBoundingClientRect()
@@ -350,22 +348,23 @@ width: ${this.width}px; height: ${this.elm.dataset.height}; transform: scale(${v
 	}
 	/**
 	 * @param {Viewport} viewport
-	 * @param {{ x: number, y: number }} pos
+	 * @param {Line} line
 	 */
-	collidepoint(viewport, pos) {
-		var screenPos = viewport.getScreenPosFromStagePos(pos.x, pos.y)
-		return document.elementsFromPoint(screenPos.x, screenPos.y).includes(this.elm)
+	collideline(viewport, line) {
+		var screenPosStart = viewport.getScreenPosFromStagePos(line.start.x, line.start.y)
+		var screenPosEnd = viewport.getScreenPosFromStagePos(line.end.x, line.end.y)
+		var domRect = this.elm.getBoundingClientRect()
+		return rectangleIntersectsLine({ x: domRect.x, y: domRect.y, w: domRect.width, h: domRect.height }, { start: screenPosStart, end: screenPosEnd })
 	}
 	/**
 	 * @param {Viewport} viewport
-	 * @param {{ x: number, y: number }} pos
-	 * @param {{ x: number, y: number }} size
+	 * @param {Rect} rect
 	 */
-	colliderect(viewport, pos, size) {
+	colliderect(viewport, rect) {
 		var elementRect = this.elm.getBoundingClientRect()
 		var stageSize = { x: elementRect.width / viewport.zoom, y: elementRect.height / viewport.zoom }
 		// stagePos = this.pos
-		return pos.x <= this.pos.x + stageSize.x && pos.x + size.x >= this.pos.x && pos.y <= this.pos.y + stageSize.y && pos.y + size.y >= this.pos.y
+		return rect.x <= this.pos.x + stageSize.x && rect.x + rect.w >= this.pos.x && rect.y <= this.pos.y + stageSize.y && rect.y + rect.h >= this.pos.y
 	}
 	/**
 	 * @param {number} dx
@@ -379,7 +378,7 @@ width: ${this.width}px; height: ${this.elm.dataset.height}; transform: scale(${v
 	}
 	/**
 	 * @param {Viewport} viewport
-	 * @param {{ x: number, y: number, w: number, h: number }} boundingBox
+	 * @param {Rect} boundingBox
 	 * @returns {Handle[]}
 	 */
 	getHandles(viewport, boundingBox) { return [new TextBoxWidthHandle(viewport, this, boundingBox), new TextBoxRescalingHandle(viewport, this, boundingBox)]; }
@@ -427,7 +426,7 @@ class Handle {
 class LinearMovementHandle extends Handle {
 	/**
 	 * @param {Viewport} viewport
-	 * @param {{ objects: SceneObject[], boundingBox: { x: number, y: number, w: number, h: number }, handles: Handle[] }} selection
+	 * @param {{ objects: SceneObject[], boundingBox: Rect, handles: Handle[] }} selection
 	 */
 	constructor(viewport, selection) {
 		super(viewport)
@@ -458,7 +457,7 @@ class TextBoxWidthHandle extends Handle {
 	/**
 	 * @param {Viewport} viewport
 	 * @param {TextObject} selection
-	 * @param {{ x: number, y: number, w: number, h: number }} boundingBox
+	 * @param {Rect} boundingBox
 	 */
 	constructor(viewport, selection, boundingBox) {
 		super(viewport)
@@ -487,7 +486,7 @@ class TextBoxRescalingHandle extends Handle {
 	/**
 	 * @param {Viewport} viewport
 	 * @param {TextObject} selection
-	 * @param {{ x: number, y: number, w: number, h: number }} boundingBox
+	 * @param {Rect} boundingBox
 	 */
 	constructor(viewport, selection, boundingBox) {
 		super(viewport)
@@ -511,7 +510,7 @@ class TextBoxRescalingHandle extends Handle {
 		this.selection.elm.dispatchEvent(new InputEvent("input"))
 		// Move rect
 		this.rect.w = this.selection.width * this.selection.scale;
-		this.rect.h = this.selection.elm.getBoundingClientRect().height;
+		this.rect.h = this.selection.elm.getBoundingClientRect().height / this.viewport.zoom;
 	}
 }
 
@@ -538,7 +537,7 @@ class Viewport {
 		return realPos
 	}
 	/**
-	 * @param {{ x: number, y: number }} origin
+	 * @param {Point} origin
 	 * @param {number} amount
 	 */
 	zoomView(origin, amount) {
@@ -736,7 +735,7 @@ class Whiteboard {
 		this.objects = []
 		this.selectedLayer = 0;
 		this.strictLayer = true;
-		/** @type {{ objects: SceneObject[], originalBoundingBox: { x: number, y: number, w: number, h: number }, boundingBox: { x: number, y: number, w: number, h: number }, handles: Handle[] } | null} */
+		/** @type {{ objects: SceneObject[], originalBoundingBox: Rect, boundingBox: Rect, handles: Handle[] } | null} */
 		this.selection = null
 		this.connection = new Connection(this, true)
 		this.renderer = new Renderer(this)
@@ -902,7 +901,7 @@ class Whiteboard {
  * List of drawing modes.
  * Each one takes in a list of stage points (drawn by the mouse),
  * and returns another list of stage points (to display).
- * @typedef {(points: { x: number, y: number }[]) => { x: number, y: number }[]} DrawingMode
+ * @typedef {(points: Point[]) => Point[]} DrawingMode
  * @type {Object<string, DrawingMode>}
  */
 var drawingModes = {
@@ -1092,7 +1091,7 @@ class DrawTouchMode extends TouchMode {
 	 */
 	constructor(touch, color, drawing_mode) {
 		super(touch)
-		/** @type {{ x: number, y: number }[]} */
+		/** @type {Point[]} */
 		this.points = [this.getSavedTouchPos()]
 		this.color = color
 		this.drawing_mode = drawing_mode
@@ -1242,9 +1241,9 @@ class SelectTouchMode extends TouchMode {
 	 */
 	constructor(touch) {
 		super(touch)
-		/** @type {{ x: number, y: number }} */
+		/** @type {Point} */
 		this.startPos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y)
-		/** @type {{ x: number, y: number }} */
+		/** @type {Point} */
 		this.endPos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y)
 	}
 	/**
@@ -1288,8 +1287,8 @@ class SelectTouchMode extends TouchMode {
 			y = this.endPos.y
 			height = -height
 		}
-		var rectPos = { x, y }
-		var rectSize = { x: width, y: height }
+		/** @type {Rect} */
+		var rect = { x, y, w: width, h: height }
 		// === Select items! ===
 		var selectedItems = []
 		// Keep previously selected items if shift key is pressed
@@ -1302,7 +1301,7 @@ class SelectTouchMode extends TouchMode {
 			// ...except objects on another layer
 			if (this.touch.whiteboard.strictLayer && obj.layer != this.touch.whiteboard.selectedLayer) continue;
 			// Check if the object collides with the selection rectangle
-			if (obj.colliderect(this.touch.whiteboard.viewport, rectPos, rectSize)) {
+			if (obj.colliderect(this.touch.whiteboard.viewport, rect)) {
 				selectedItems.push(obj)
 			}
 		}
@@ -1321,17 +1320,24 @@ class EraseTouchMode extends TouchMode {
 	 */
 	constructor(touch) {
 		super(touch)
-		this.eraseAtPoint(this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y))
+		// // Erase around this position
+		// var touchLoc = this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y);
+		// this.eraseLine()
 	}
-	/** @param {{ x: number; y: number; }} pos */
-	eraseAtPoint(pos) {
+	/** @param {Line} line */
+	eraseLine(line) {
 		var o = [...this.touch.whiteboard.objects]
 		for (var i = 0; i < o.length; i++) {
-			if (o[i].verified && (o[i].layer == this.touch.whiteboard.selectedLayer || !this.touch.whiteboard.strictLayer) && o[i].collidepoint(this.touch.whiteboard.viewport, pos)) {
-				this.touch.whiteboard.doAction(new USIEraseObjects(this.touch.whiteboard, [{
-					layer: this.touch.whiteboard.selectedLayer, typeID: o[i].getTypeID(), objectID: o[i].objectID, data: o[i].data
-				}]))
-			}
+			// Don't erase if the object is unverified
+			if (! o[i].verified) continue;
+			// Don't erase if we are on another layer
+			if (this.touch.whiteboard.strictLayer && o[i].layer != this.touch.whiteboard.selectedLayer) continue;
+			// Check for collision
+			if (! o[i].collideline(this.touch.whiteboard.viewport, line)) continue;
+			// Erase the object
+			this.touch.whiteboard.doAction(new USIEraseObjects(this.touch.whiteboard, [{
+				layer: this.touch.whiteboard.selectedLayer, typeID: o[i].getTypeID(), objectID: o[i].objectID, data: o[i].data
+			}]))
 		}
 	}
 	/**
@@ -1341,7 +1347,10 @@ class EraseTouchMode extends TouchMode {
 	 * @param {number} newY
 	 */
 	onMove(previousX, previousY, newX, newY) {
-		this.eraseAtPoint(this.touch.whiteboard.viewport.getStagePosFromScreenPos(this.touch.x, this.touch.y))
+		this.eraseLine({
+			start: this.touch.whiteboard.viewport.getStagePosFromScreenPos(previousX, previousY),
+			end: this.touch.whiteboard.viewport.getStagePosFromScreenPos(newX, newY)
+		})
 	}
 	toString() {
 		return `EraseTouchMode {}`

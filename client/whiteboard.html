@@ -148,7 +148,10 @@ textarea.unverified.another-layer {
 		</div>
 		<div class="menu" style="left: 8em; padding: 1em;">
 			<div>Mode: <b id="mode-output">Draw</b></div>
-			<div><input type="checkbox" checked style="margin-left: 0;" oninput="whiteboard.strictLayer = event.target.checked" id="is_strict_layer_checkbox"><label for="is_strict_layer_checkbox">Layer: </label><button onclick="whiteboard.selectedLayer -= 1; event.target.nextElementSibling.value = whiteboard.selectedLayer;">&lt;</button><input type="number" value="0" min="-10" max="10" style="width: 2em;" oninput="whiteboard.selectedLayer = Math.round(Number(event.target.value))"><button onclick="whiteboard.selectedLayer += 1; event.target.previousElementSibling.value = whiteboard.selectedLayer;">&gt;</button></div>
+			<div><input type="checkbox" checked style="margin-left: 0;" oninput="whiteboard.strictLayer = event.target.checked" id="is_strict_layer_checkbox"><label for="is_strict_layer_checkbox">Layer: </label><!--
+				--><button onclick="whiteboard.selectedLayer = Math.max(whiteboard.selectedLayer - 1, -1); event.target.nextElementSibling.value = whiteboard.selectedLayer;">&lt;</button><!--
+				--><input type="number" value="0" min="-1" max="9" style="width: 2em;" oninput="whiteboard.selectedLayer = Math.round(Number(event.target.value)); whiteboard.selectedLayer = Math.max(Math.min(whiteboard.selectedLayer, 9), -1);"><!--
+				--><button onclick="whiteboard.selectedLayer = Math.min(whiteboard.selectedLayer + 1, 9); event.target.previousElementSibling.value = whiteboard.selectedLayer;">&gt;</button></div>
 			<div><button onclick="whiteboard.undo()">Undo</button><button onclick="whiteboard.redo()">Redo</button></div>
 		</div>
 		<div class="menu" style="left: 8em; bottom: 6.75em; padding: 1em;" id="drawmode">
