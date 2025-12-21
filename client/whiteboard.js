@@ -830,10 +830,12 @@ class Connection {
 	}
 	/**
 	 * @param {Blob} imageData
+	 * @param {number} index The number of times this function has been called before. Used to space out images.
 	 */
-	createImage(imageData) {
+	createImage(imageData, index) {
 		var x = new XMLHttpRequest()
-		x.open("POST", "/create_image?whiteboard=" + location.pathname.split("/").at(-2) + "&layer=" + this.whiteboard.selectedLayer + "&x=" + this.whiteboard.viewport.x + "&y=" + this.whiteboard.viewport.y + "&scale=" + this.whiteboard.viewport.zoom)
+		x.open("POST", "/create_image?whiteboard=" + location.pathname.split("/").at(-2) + "&layer=" + this.whiteboard.selectedLayer + "&x=" + this.whiteboard.viewport.x +
+			"&y=" + (this.whiteboard.viewport.y + (index * -50)) + "&scale=" + this.whiteboard.viewport.zoom)
 		x.send(imageData)
 	}
 	/**
@@ -961,7 +963,7 @@ class Whiteboard {
 				for (var mimeType of obj.types) {
 					if (mimeType.startsWith("image/")) {
 						var blob = await obj.getType(mimeType)
-						this.connection.createImage(blob)
+						this.connection.createImage(blob, successes)
 						successes += 1;
 					} else fails += 1;
 				}
@@ -970,7 +972,7 @@ class Whiteboard {
 				// If it's a DataTransferItem:
 				if (obj.kind == "file" && obj.type.startsWith("image/")) {
 						var file = obj.getAsFile()
-						if (file) this.connection.createImage(file)
+						if (file) this.connection.createImage(file, successes)
 						successes += 1;
 				} else fails += 1;
 			}

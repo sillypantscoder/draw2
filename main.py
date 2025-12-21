@@ -203,7 +203,23 @@ class Draw2Server(HTTPServer):
 			# Attempt to load image from body
 			from PIL import Image as PillowImage # type: ignore
 			import io
-			image: PillowImage.Image = PillowImage.open(io.BytesIO(body)).convert("RGBA") # type: ignore
+			try:
+				# Attempt to load image via pillow
+				image: PillowImage.Image = PillowImage.open(io.BytesIO(body)).convert("RGBA") # type: ignore
+			except:
+				# Attempt to load image via pygame
+				import pygame
+				try:
+					pygame.display.set_mode((10, 10), pygame.HIDDEN)
+					surface = pygame.image.load(io.BytesIO(body)).convert_alpha()
+				except:
+					pygame.font.init()
+					surface = pygame.font.SysFont(pygame.font.get_default_font(), 60).render("Unsupported Image Format", True, (255, 0, 0), (192, 192, 192))
+				# Convert to pillow image
+				converted_image_bytes = io.BytesIO()
+				pygame.image.save(surface, converted_image_bytes, "loaded.png")
+				converted_image_bytes.seek(0)
+				image: PillowImage.Image = PillowImage.open(converted_image_bytes).convert("RGBA") # type: ignore
 			convertedBuffer = io.BytesIO()
 			image.save(convertedBuffer, "WEBP") # type: ignore
 			convertedBuffer.seek(0)
