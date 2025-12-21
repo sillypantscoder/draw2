@@ -152,7 +152,7 @@ textarea.unverified.another-layer {
 				--><button onclick="whiteboard.updateLayer(-1, true)">&lt;</button><!--
 				--><input type="number" value="0" min="-1" max="9" style="width: 2em;" id="layer-display" oninput="whiteboard.updateLayer(event.target.value, false)"><!--
 				--><button onclick="whiteboard.updateLayer(1, true)">&gt;</button></div>
-			<div><button onclick="whiteboard.undo()">Undo</button><button onclick="whiteboard.redo()">Redo</button></div>
+			<div><button onclick="whiteboard.undo()">Undo</button><button onclick="whiteboard.redo()">Redo</button><button onclick="whiteboard.attemptPaste()">Paste Image</button></div>
 		</div>
 		<div class="menu" style="left: 8em; bottom: 6.75em; padding: 1em;" id="drawmode">
 			<div>Drawing Mode: <select oninput="selectedDrawingMode = event.target.value; event.target.blur()">

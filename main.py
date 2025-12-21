@@ -181,11 +181,12 @@ class Draw2Server(HTTPServer):
 			convertedBuffer.seek(0)
 			imageData = convertedBuffer.read()
 			# Create image object
+			scale = float(query.get("scale"))
 			objectID = round(random.random() * 10000000)
 			objectData: dict[str, typing.Any] = {
-				"x": 50 - float(query.get("x")),
-				"y": 50 - float(query.get("x")),
-				"scale": 2 * float(query.get("scale")),
+				"x": (50 - float(query.get("x"))) / scale,
+				"y": (50 - float(query.get("y"))) / scale,
+				"scale": 1 / scale,
 				"imageData": base64.b64encode(imageData).decode("UTF-8")
 			}
 			whiteboard.objects[str(objectID)] = {

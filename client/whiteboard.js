@@ -756,7 +756,7 @@ class Connection {
 	constructor(whiteboard, first) {
 		this.whiteboard = whiteboard;
 		// Create websocket
-		var ws = new WebSocket("ws://" + location.hostname + ":8062/")
+		var ws = new WebSocket("wss://" + location.hostname + "/ws")
 		this.webSocket = ws
 		ws.addEventListener("open", () => {
 			ws.send((first ? "1" : "0") + (location.pathname.split("/").at(-2) ?? "ERROR"))
@@ -824,7 +824,7 @@ class Connection {
 		}))
 	}
 	/**
-	 * @param {File} imageData
+	 * @param {Blob} imageData
 	 */
 	createImage(imageData) {
 		var x = new XMLHttpRequest()
@@ -939,6 +939,19 @@ class Whiteboard {
 			}
 		}).bind(this))
 		this.updateUndoButtons()
+	}
+	attemptPaste() {
+		navigator.clipboard.read().then((async (/** @type {ClipboardItem[]} */ items) => {
+			for (var clipboardItem of items) {
+				// Evaluate this pasted item to see if it can be inserted
+				for (var mimeType of clipboardItem.types) {
+					if (mimeType.startsWith("image/")) {
+						var blob = await clipboardItem.getType(mimeType)
+						this.connection.createImage(blob)
+					}
+				}
+			}
+		}).bind(this))
 	}
 	/** @param {SceneObject} obj */
 	add(obj) {
