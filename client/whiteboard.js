@@ -44,6 +44,9 @@ function setCurrentMode(mode) {
 (function updateViewPos() {
 	mainCanvas.width = window.innerWidth
 	mainCanvas.height = window.innerHeight
+	window.addEventListener("resize", () => {
+		updateViewPos()
+	})
 })();
 
 /** @param {Rect[]} rects */
@@ -983,6 +986,7 @@ class Whiteboard {
 			let styles = `position: absolute; bottom: 12em; left: 0; margin: 1em; border: 0.25em solid black; background: ${successes == 0 ? "#F00" : "#080"}; padding: 1em; border-radius: 1em; font-weight: bold; color: white; transition: opacity 2s linear, transform 0.125s ease-in-out;`
 			e.setAttribute("style", styles + " opacity: 1; transform: scale(0.9);")
 			e.innerText = `${fails > 0 ? `Failed to insert ${fails} non-image item${fails == 1 ? "" : "s"}.` : ""}${fails > 0 && successes > 0 ? " " : ""}${successes > 0 ? `Inserting ${successes} image${successes == 1 ? "" : "s"}...` : ""}`
+			if (fails == 0 && successes == 0) e.innerText = `There is nothing copied to the clipboard!`
 			// Finish zoom out
 			requestAnimationFrame(() => {
 				requestAnimationFrame(() => {
@@ -1368,7 +1372,7 @@ class DrawTouchMode extends TouchMode {
 	 */
 	onEnd(previousX, previousY) {
 		// Add drawing to screen
-		if (this.points.length > 4) {
+		if (this.points.length > 3) {
 			this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
 				layer: this.touch.whiteboard.selectedLayer,
 				typeID: "drawing",
